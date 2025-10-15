@@ -1,0 +1,161 @@
+.container {
+  min-height: 100vh;
+  background: #f5f5f5;
+}
+
+.header {
+  background: white;
+  padding: 1.5rem 2rem;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.header h1 {
+  margin: 0;
+  color: #333;
+}
+
+.userSection {
+  display: flex;
+  align-items: center;
+  gap: 1.5rem;
+}
+
+.userSection span {
+  color: #666;
+  font-size: 1rem;
+}
+
+.logoutButton {
+  background: #dc3545;
+  color: white;
+  padding: 0.5rem 1.5rem;
+  border-radius: 5px;
+  border: none;
+  transition: background 0.3s ease;
+}
+
+.logoutButton:hover {
+  background: #c82333;
+}
+
+.main {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 2rem;
+}
+
+.section {
+  background: white;
+  padding: 2rem;
+  border-radius: 8px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+  margin-bottom: 2rem;
+}
+
+.section h2 {
+  margin: 0 0 1.5rem 0;
+  color: #333;
+}
+
+.sectionHeader {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 1.5rem;
+}
+
+.sectionHeader h2 {
+  margin: 0;
+}
+
+.refreshButton {
+  background: #0070f3;
+  color: white;
+  padding: 0.5rem 1.5rem;
+  border-radius: 5px;
+  border: none;
+  transition: background 0.3s ease;
+}
+
+.refreshButton:hover {
+  background: #0051cc;
+}
+
+.loadingText {
+  color: #666;
+  text-align: center;
+  font-size: 1.1rem;
+}
+
+.error {
+  background: #fff3cd;
+  border: 1px solid #ffc107;
+  padding: 1rem;
+  border-radius: 5px;
+  color: #856404;
+}
+
+.errorHint {
+  margin-top: 0.5rem;
+  font-size: 0.9rem;
+  color: #666;
+}
+
+.emptyState {
+  color: #999;
+  text-align: center;
+  font-size: 1.1rem;
+}
+
+.itemsGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+  gap: 1.5rem;
+}
+
+.itemCard {
+  background: #f8f9fa;
+  padding: 1.5rem;
+  border-radius: 8px;
+  border: 1px solid #e9ecef;
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+
+.itemCard:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+}
+
+.itemCard h3 {
+  margin: 0 0 0.5rem 0;
+  color: #0070f3;
+  font-size: 1.2rem;
+}
+
+.itemCard p {
+  margin: 0;
+  color: #666;
+  line-height: 1.5;
+}
+
+.userInfo {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.userInfoItem {
+  padding: 1rem;
+  background: #f8f9fa;
+  border-radius: 5px;
+  border-left: 4px solid #0070f3;
+}
+
+.userInfoItem strong {
+  color: #333;
+  margin-right: 0.5rem;
+}
+
