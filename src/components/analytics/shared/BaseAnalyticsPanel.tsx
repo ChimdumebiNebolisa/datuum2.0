@@ -118,11 +118,11 @@ export function BaseAnalyticsPanel({
                 <span className="text-sm text-destructive font-medium">{error}</span>
                 {error.includes('Python engine not available') && (
                   <div className="mt-2 text-xs text-muted-foreground">
-                    <p>This usually happens when:</p>
+                    <p>This analysis feature is currently unavailable. This can happen when:</p>
                     <ul className="list-disc list-inside mt-1 space-y-1">
-                      <li>The Python engine is still loading (try refreshing the page)</li>
-                      <li>Your browser doesn't support Web Workers</li>
-                      <li>There's a network connectivity issue</li>
+                      <li>The analysis engine is still loading (try refreshing the page)</li>
+                      <li>Your browser doesn't support this feature</li>
+                      <li>There's a temporary connectivity issue</li>
                     </ul>
                     <button 
                       onClick={() => window.location.reload()} 

@@ -151,7 +151,7 @@ export function usePythonExecution() {
         logger.error('Direct Pyodide initialization failed:', directError as Error);
       }
       
-      return { success: false, error: 'Python engine not available. Please refresh the page to retry initialization.' } as T;
+      return { success: false, error: 'Analysis engine not available. Please refresh the page to retry.' } as T;
     }
 
     setLoading(true);

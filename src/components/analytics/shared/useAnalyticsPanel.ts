@@ -10,6 +10,7 @@ export interface UseAnalyticsPanelOptions {
   dataColumns: string[];
   autoExecute?: boolean;
   minColumnsRequired?: number;
+  analysisType?: string;
 }
 
 export interface AnalyticsPanelState {
@@ -26,7 +27,8 @@ export function useAnalyticsPanel({
   data,
   dataColumns,
   autoExecute = false,
-  minColumnsRequired = 1
+  minColumnsRequired = 1,
+  analysisType = 'analysis'
 }: UseAnalyticsPanelOptions) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -97,10 +99,21 @@ export function useAnalyticsPanel({
     }
   }, [autoExecute, hasValidData, isInitialized]);
 
+  // Generate contextual error message
+  const getContextualError = (originalError: string | null) => {
+    if (!originalError) return null;
+    
+    if (originalError.includes('Analysis engine not available') || originalError.includes('Python engine not available')) {
+      return `${analysisType} can't be used right now. Please refresh the page to retry.`;
+    }
+    
+    return originalError;
+  };
+
   return {
     // State
     loading,
-    error: error || initializationError,
+    error: getContextualError(error || initializationError),
     isInitialized,
     hasValidData,
     numericColumns,

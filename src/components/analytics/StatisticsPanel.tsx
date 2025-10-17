@@ -79,7 +79,8 @@ export function StatisticsPanel({ data, dataColumns, className }: StatisticsPane
     data,
     dataColumns,
     autoExecute: false,
-    minColumnsRequired: 1
+    minColumnsRequired: 1,
+    analysisType: 'Statistics Analysis'
   });
 
   useEffect(() => {

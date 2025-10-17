@@ -18,7 +18,7 @@ import {
   Target,
   Activity
 } from 'lucide-react';
-import { usePythonExecution } from '@/lib/pyodide-bridge';
+import { useAnalyticsPanel } from './shared/useAnalyticsPanel';
 import { logger } from '@/lib/logger';
 
 interface TimeSeriesPanelProps {
@@ -54,19 +54,23 @@ export function TimeSeriesPanel({ data, dataColumns, className }: TimeSeriesPane
   const [selectedColumn, setSelectedColumn] = useState<string>('');
   const [selectedMethod, setSelectedMethod] = useState<string>('decomposition');
   const [timeSeriesResult, setTimeSeriesResult] = useState<TimeSeriesResult | null>(null);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState('decomposition');
   const [forecastPeriods, setForecastPeriods] = useState(12);
   const [windowSize, setWindowSize] = useState(12);
 
-  const { executePython, isInitialized } = usePythonExecution();
-
-  // Get numeric columns for analysis
-  const numericColumns = dataColumns.filter(col => {
-    if (!data.length) return false;
-    const sampleValues = data.slice(0, 10).map(row => row[col]);
-    return sampleValues.every(val => typeof val === 'number' && !isNaN(val));
+  const {
+    loading,
+    error,
+    isInitialized,
+    hasValidData,
+    numericColumns,
+    executeWithErrorHandling
+  } = useAnalyticsPanel({
+    data,
+    dataColumns,
+    autoExecute: false,
+    minColumnsRequired: 1,
+    analysisType: 'Time Series Analysis'
   });
 
   const timeSeriesMethods = [
@@ -95,11 +99,6 @@ export function TimeSeriesPanel({ data, dataColumns, className }: TimeSeriesPane
 
   const performTimeSeriesAnalysis = useCallback(async () => {
     if (!isInitialized || !selectedColumn) return;
-
-    setLoading(true);
-    setError(null);
-
-    try {
       let code = '';
       
       if (selectedMethod === 'decomposition') {
@@ -252,20 +251,14 @@ result
         `;
       }
 
-      const result = await executePython(code);
-      
-      if (result) {
-        setTimeSeriesResult(result as TimeSeriesResult);
-      } else {
-        setError('Failed to perform time series analysis');
-      }
-    } catch (error) {
-      setError('Error performing time series analysis');
-      logger.error('Time series analysis error:', error);
-    } finally {
-      setLoading(false);
-    }
-  }, [isInitialized, selectedColumn, selectedMethod, windowSize, forecastPeriods, data, executePython]);
+      await executeWithErrorHandling(
+        code,
+        (result) => {
+          setTimeSeriesResult(result as TimeSeriesResult);
+        },
+        'Failed to perform time series analysis'
+      );
+    }, [isInitialized, selectedColumn, selectedMethod, windowSize, forecastPeriods, data, executeWithErrorHandling]);
 
   const renderDecompositionChart = () => {
     if (!timeSeriesResult || selectedMethod !== 'decomposition') return null;
@@ -482,7 +475,7 @@ result
     );
   }
 
-  if (numericColumns.length === 0) {
+  if (!hasValidData) {
     return (
       <Card className={className}>
         <CardHeader>

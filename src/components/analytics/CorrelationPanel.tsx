@@ -16,7 +16,7 @@ import {
   Zap,
   Activity
 } from 'lucide-react';
-import { usePythonExecution } from '@/lib/pyodide-bridge';
+import { useAnalyticsPanel } from './shared/useAnalyticsPanel';
 import { logger } from '@/lib/logger';
 
 interface CorrelationPanelProps {
@@ -38,18 +38,22 @@ export function CorrelationPanel({ data, dataColumns, className }: CorrelationPa
   const [selectedColumns, setSelectedColumns] = useState<string[]>([]);
   const [correlationResults, setCorrelationResults] = useState<any>(null);
   const [correlationMethod, setCorrelationMethod] = useState<'pearson' | 'spearman' | 'kendall'>('pearson');
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState('heatmap');
   const [selectedPair, setSelectedPair] = useState<CorrelationResult | null>(null);
 
-  const { executePython, isInitialized } = usePythonExecution();
-
-  // Get numeric columns for analysis
-  const numericColumns = dataColumns.filter(col => {
-    if (!data.length) return false;
-    const sampleValues = data.slice(0, 10).map(row => row[col]);
-    return sampleValues.every(val => typeof val === 'number' && !isNaN(val));
+  const {
+    loading,
+    error,
+    isInitialized,
+    hasValidData,
+    numericColumns,
+    executeWithErrorHandling
+  } = useAnalyticsPanel({
+    data,
+    dataColumns,
+    autoExecute: false,
+    minColumnsRequired: 2,
+    analysisType: 'Correlation Analysis'
   });
 
   useEffect(() => {
@@ -61,11 +65,7 @@ export function CorrelationPanel({ data, dataColumns, className }: CorrelationPa
   const calculateCorrelations = useCallback(async () => {
     if (!isInitialized || selectedColumns.length < 2) return;
 
-    setLoading(true);
-    setError(null);
-
-    try {
-      const code = `
+    const code = `
 import sys
 sys.path.append('/python')
 import pandas as pd
@@ -80,22 +80,16 @@ result = statistics_analyzer.correlation_analysis(
     method='${correlationMethod}'
 )
 result
-      `;
+    `;
 
-      const result = await executePython(code);
-      
-      if ((result as any).success) {
+    await executeWithErrorHandling(
+      code,
+      (result) => {
         setCorrelationResults(result);
-      } else {
-        setError((result as any).error || 'Failed to calculate correlations');
-      }
-    } catch (error) {
-      setError('Error calculating correlations');
-      logger.error('Correlation calculation error:', error);
-    } finally {
-      setLoading(false);
-    }
-  }, [isInitialized, selectedColumns, correlationMethod, data, executePython]);
+      },
+      'Failed to calculate correlations'
+    );
+  }, [isInitialized, selectedColumns, correlationMethod, data, executeWithErrorHandling]);
 
   useEffect(() => {
     if (selectedColumns.length >= 2 && isInitialized) {
@@ -300,7 +294,7 @@ result
     );
   }
 
-  if (numericColumns.length < 2) {
+  if (!hasValidData) {
     return (
       <Card className={className}>
         <CardHeader>
