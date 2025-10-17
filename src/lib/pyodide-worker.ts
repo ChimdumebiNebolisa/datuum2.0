@@ -1,4 +1,12 @@
-// Pyodide Web Worker for Python execution
+// Simple Python execution worker (Pyodide will be loaded dynamically)
+
+// TypeScript declarations for worker environment
+declare global {
+  interface WorkerGlobalScope {
+    pyodide: any;
+  }
+  function importScripts(...urls: string[]): void;
+}
 
 let pyodide: any = null;
 let isInitialized = false;
@@ -8,12 +16,34 @@ async function initializePyodide() {
   if (isInitialized) return pyodide;
   
   try {
-    // Dynamic import to avoid Node.js module issues
-    const { loadPyodide } = await import('pyodide');
-    
-    pyodide = await loadPyodide({
-      indexURL: "https://cdn.jsdelivr.net/pyodide/v0.26.0/full/"
-    });
+    // Load Pyodide script dynamically
+    if (typeof window !== 'undefined') {
+      // Browser environment - load Pyodide from CDN
+      const script = document.createElement('script');
+      script.src = 'https://cdn.jsdelivr.net/pyodide/v0.26.0/full/pyodide.js';
+      document.head.appendChild(script);
+      
+      await new Promise((resolve, reject) => {
+        script.onload = resolve;
+        script.onerror = reject;
+      });
+      
+      // @ts-ignore - pyodide is now available globally
+      const { loadPyodide } = window.pyodide;
+      
+      pyodide = await loadPyodide({
+        indexURL: "https://cdn.jsdelivr.net/pyodide/v0.26.0/full/"
+      });
+    } else {
+      // Worker environment - use importScripts
+      importScripts('https://cdn.jsdelivr.net/pyodide/v0.26.0/full/pyodide.js');
+      // @ts-ignore
+      const { loadPyodide } = self.pyodide;
+      
+      pyodide = await loadPyodide({
+        indexURL: "https://cdn.jsdelivr.net/pyodide/v0.26.0/full/"
+      });
+    }
 
     // Load essential packages
     await pyodide.loadPackage([

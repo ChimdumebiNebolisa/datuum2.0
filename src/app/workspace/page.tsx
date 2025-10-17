@@ -5,8 +5,9 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
-import { Upload, FileText, BarChart3, Settings, Download, Save, FolderOpen, Sparkles } from 'lucide-react';
-// import { usePythonExecution } from '@/lib/pyodide-bridge';
+import { Badge } from '@/components/ui/badge';
+import { Upload, FileText, BarChart3, Settings, Download, Save, FolderOpen, Sparkles, Calculator, TrendingUp, AlertTriangle } from 'lucide-react';
+import { usePythonExecution } from '@/lib/pyodide-bridge';
 import dynamic from 'next/dynamic';
 
 const ChartRenderer = dynamic(() => import('@/components/ChartRenderer').then(mod => ({ default: mod.ChartRenderer })), {
@@ -19,6 +20,36 @@ const ChartSelector = dynamic(() => import('@/components/ChartSelector').then(mo
   loading: () => <div className="h-32 flex items-center justify-center">Loading chart selector...</div>
 });
 
+const StatisticsPanel = dynamic(() => import('@/components/analytics/StatisticsPanel').then(mod => ({ default: mod.StatisticsPanel })), {
+  ssr: false,
+  loading: () => <div className="h-64 flex items-center justify-center">Loading statistics...</div>
+});
+
+const CorrelationPanel = dynamic(() => import('@/components/analytics/CorrelationPanel').then(mod => ({ default: mod.CorrelationPanel })), {
+  ssr: false,
+  loading: () => <div className="h-64 flex items-center justify-center">Loading correlations...</div>
+});
+
+const OutlierPanel = dynamic(() => import('@/components/analytics/OutlierPanel').then(mod => ({ default: mod.OutlierPanel })), {
+  ssr: false,
+  loading: () => <div className="h-64 flex items-center justify-center">Loading outlier detection...</div>
+});
+
+const DataTable = dynamic(() => import('@/components/DataTable').then(mod => ({ default: mod.DataTable })), {
+  ssr: false,
+  loading: () => <div className="h-64 flex items-center justify-center">Loading data table...</div>
+});
+
+const DataTransformPanel = dynamic(() => import('@/components/data/DataTransformPanel').then(mod => ({ default: mod.DataTransformPanel })), {
+  ssr: false,
+  loading: () => <div className="h-64 flex items-center justify-center">Loading data transform...</div>
+});
+
+const DataCleaningPanel = dynamic(() => import('@/components/data/DataCleaningPanel').then(mod => ({ default: mod.DataCleaningPanel })), {
+  ssr: false,
+  loading: () => <div className="h-64 flex items-center justify-center">Loading data cleaning...</div>
+});
+
 export default function WorkspacePage() {
   const [isPythonReady, setIsPythonReady] = useState(false);
   const [currentData, setCurrentData] = useState<any[]>([]);
@@ -28,10 +59,7 @@ export default function WorkspacePage() {
   const [chartConfig, setChartConfig] = useState<any>({});
   const [chartRecommendations, setChartRecommendations] = useState<any[]>([]);
   
-  // const { executePython, isInitialized, loading } = usePythonExecution();
-  const executePython = async () => ({ success: false, recommendations: [] });
-  const isInitialized = true;
-  const loading = false;
+  const { executePython, isInitialized, loading } = usePythonExecution();
 
   useEffect(() => {
     if (isInitialized) {
@@ -193,19 +221,62 @@ export default function WorkspacePage() {
 
   const DataPreview = () => (
     <div className="space-y-6">
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <FileText className="h-5 w-5" />
-            Data Preview
-          </CardTitle>
-          <CardDescription>
-            {dataInfo && `${dataInfo.rows} rows × ${dataInfo.columns.length} columns`}
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          {currentData.length > 0 ? (
-            <div className="space-y-4">
+      {currentData.length > 0 ? (
+        <>
+          {/* Enhanced Data Table with editing capabilities */}
+          <DataTable
+            data={currentData}
+            columns={dataInfo?.columns || []}
+            onDataChange={(newData) => {
+              setCurrentData(newData);
+              setDataInfo(prev => ({
+                ...prev,
+                rows: newData.length,
+                columns: Object.keys(newData[0] || {})
+              }));
+            }}
+          />
+
+          {/* Data Transform Panel */}
+          <DataTransformPanel
+            data={currentData}
+            columns={dataInfo?.columns || []}
+            onDataChange={(newData) => {
+              setCurrentData(newData);
+              setDataInfo(prev => ({
+                ...prev,
+                rows: newData.length,
+                columns: Object.keys(newData[0] || {})
+              }));
+            }}
+          />
+
+          {/* Data Cleaning Panel */}
+          <DataCleaningPanel
+            data={currentData}
+            columns={dataInfo?.columns || []}
+            onDataChange={(newData) => {
+              setCurrentData(newData);
+              setDataInfo(prev => ({
+                ...prev,
+                rows: newData.length,
+                columns: Object.keys(newData[0] || {})
+              }));
+            }}
+          />
+
+          {/* Data Info Card */}
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <FileText className="h-5 w-5" />
+                Data Information
+              </CardTitle>
+              <CardDescription>
+                {dataInfo && `${dataInfo.rows} rows × ${dataInfo.columns.length} columns`}
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
               <div className="flex items-center gap-2 text-sm text-muted-foreground">
                 <span>File: {dataInfo?.fileName}</span>
                 {dataInfo?.fileSize && (
@@ -213,45 +284,52 @@ export default function WorkspacePage() {
                 )}
               </div>
               
-              <div className="border rounded-lg overflow-hidden">
-                <div className="overflow-x-auto max-h-96">
-                  <table className="w-full text-sm">
-                    <thead className="bg-muted">
-                      <tr>
-                        {dataInfo?.columns.map((col: string) => (
-                          <th key={col} className="px-3 py-2 text-left font-medium">
-                            {col}
-                          </th>
-                        ))}
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {currentData.slice(0, 10).map((row, index) => (
-                        <tr key={index} className="border-t">
-                          {dataInfo?.columns.map((col: string) => (
-                            <td key={col} className="px-3 py-2">
-                              {row[col]}
-                            </td>
-                          ))}
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
+              <div className="mt-4 grid grid-cols-2 md:grid-cols-4 gap-4">
+                <div className="text-center p-3 bg-muted/50 rounded">
+                  <div className="text-2xl font-bold">{dataInfo?.rows || 0}</div>
+                  <div className="text-xs text-muted-foreground">Rows</div>
                 </div>
-                {currentData.length > 10 && (
-                  <div className="px-3 py-2 text-sm text-muted-foreground bg-muted">
-                    Showing 10 of {currentData.length} rows
+                <div className="text-center p-3 bg-muted/50 rounded">
+                  <div className="text-2xl font-bold">{dataInfo?.columns?.length || 0}</div>
+                  <div className="text-xs text-muted-foreground">Columns</div>
+                </div>
+                <div className="text-center p-3 bg-muted/50 rounded">
+                  <div className="text-2xl font-bold">
+                    {dataInfo?.columns?.filter((col: string) => 
+                      currentData.slice(0, 10).some(row => 
+                        typeof row[col] === 'number' && !isNaN(row[col])
+                      )
+                    ).length || 0}
                   </div>
-                )}
+                  <div className="text-xs text-muted-foreground">Numeric</div>
+                </div>
+                <div className="text-center p-3 bg-muted/50 rounded">
+                  <div className="text-2xl font-bold">
+                    {dataInfo?.columns?.filter((col: string) => 
+                      currentData.slice(0, 10).some(row => 
+                        typeof row[col] === 'string'
+                      )
+                    ).length || 0}
+                  </div>
+                  <div className="text-xs text-muted-foreground">Text</div>
+                </div>
               </div>
+            </CardContent>
+          </Card>
+        </>
+      ) : (
+        <Card>
+          <CardContent className="flex items-center justify-center h-64">
+            <div className="text-center">
+              <FileText className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
+              <h3 className="text-lg font-medium mb-2">No Data Loaded</h3>
+              <p className="text-muted-foreground">
+                Upload a file or use sample data to get started with data editing and analysis.
+              </p>
             </div>
-          ) : (
-            <div className="text-center py-8 text-muted-foreground">
-              No data loaded. Upload a file to get started.
-            </div>
-          )}
-        </CardContent>
-      </Card>
+          </CardContent>
+        </Card>
+      )}
     </div>
   );
 
@@ -277,9 +355,9 @@ result = chart_recommender.recommend_charts()
 result
       `;
 
-      const result = await executePython();
-      if (result.success) {
-        setChartRecommendations(result.recommendations || []);
+      const result = await executePython(code);
+      if ((result as any).success) {
+        setChartRecommendations((result as any).recommendations || []);
       }
     } catch (error) {
       console.error('Error getting chart recommendations:', error);
@@ -307,6 +385,24 @@ result
             chartType={selectedChart}
             config={chartConfig}
           />
+
+          {/* Statistics Analysis */}
+          <StatisticsPanel
+            data={currentData}
+            dataColumns={dataInfo?.columns || []}
+          />
+
+          {/* Correlation Analysis */}
+          <CorrelationPanel
+            data={currentData}
+            dataColumns={dataInfo?.columns || []}
+          />
+
+          {/* Outlier Detection */}
+          <OutlierPanel
+            data={currentData}
+            dataColumns={dataInfo?.columns || []}
+          />
         </>
       )}
       
@@ -323,34 +419,49 @@ result
         <CardContent>
           {currentData.length > 0 ? (
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-              <Button variant="outline" className="h-auto p-4 flex flex-col items-start">
-                <div className="font-medium">Basic Statistics</div>
+              <Button variant="outline" className="h-auto p-4 flex flex-col items-start" disabled>
+                <div className="flex items-center gap-2">
+                  <Calculator className="h-4 w-4" />
+                  <span className="font-medium">Basic Statistics</span>
+                </div>
                 <div className="text-sm text-muted-foreground">Mean, median, std dev</div>
+                <Badge variant="secondary" className="text-xs mt-1">Available Above</Badge>
               </Button>
               
-              <Button variant="outline" className="h-auto p-4 flex flex-col items-start">
-                <div className="font-medium">Correlation Analysis</div>
+              <Button variant="outline" className="h-auto p-4 flex flex-col items-start" disabled>
+                <div className="flex items-center gap-2">
+                  <TrendingUp className="h-4 w-4" />
+                  <span className="font-medium">Correlation Analysis</span>
+                </div>
                 <div className="text-sm text-muted-foreground">Find relationships</div>
+                <Badge variant="secondary" className="text-xs mt-1">Available Above</Badge>
               </Button>
               
-              <Button variant="outline" className="h-auto p-4 flex flex-col items-start">
-                <div className="font-medium">Outlier Detection</div>
+              <Button variant="outline" className="h-auto p-4 flex flex-col items-start" disabled>
+                <div className="flex items-center gap-2">
+                  <AlertTriangle className="h-4 w-4" />
+                  <span className="font-medium">Outlier Detection</span>
+                </div>
                 <div className="text-sm text-muted-foreground">Identify anomalies</div>
+                <Badge variant="secondary" className="text-xs mt-1">Available Above</Badge>
               </Button>
               
               <Button variant="outline" className="h-auto p-4 flex flex-col items-start">
                 <div className="font-medium">Clustering</div>
                 <div className="text-sm text-muted-foreground">Group similar data</div>
+                <Badge variant="outline" className="text-xs mt-1">Coming Soon</Badge>
               </Button>
               
               <Button variant="outline" className="h-auto p-4 flex flex-col items-start">
                 <div className="font-medium">Time Series</div>
                 <div className="text-sm text-muted-foreground">Trend analysis</div>
+                <Badge variant="outline" className="text-xs mt-1">Coming Soon</Badge>
               </Button>
               
               <Button variant="outline" className="h-auto p-4 flex flex-col items-start">
                 <div className="font-medium">Regression</div>
                 <div className="text-sm text-muted-foreground">Predict relationships</div>
+                <Badge variant="outline" className="text-xs mt-1">Coming Soon</Badge>
               </Button>
             </div>
           ) : (
