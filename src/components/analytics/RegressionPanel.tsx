@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -8,20 +8,17 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Input } from '@/components/ui/input';
 import { 
-  TrendingUp, 
+  Target, 
   Download, 
-  Calculator,
+  TrendingUp,
   BarChart3,
   Info,
-  CheckCircle,
   AlertTriangle,
-  Activity,
-  Target,
-  Zap
+  Calculator,
+  Activity
 } from 'lucide-react';
 import { usePythonExecution } from '@/lib/pyodide-bridge';
-import { useToast } from '@/lib/toast';
-import Plotly from 'plotly.js-dist-min';
+import { logger } from '@/lib/logger';
 
 interface RegressionPanelProps {
   data: any[];
@@ -30,38 +27,34 @@ interface RegressionPanelProps {
 }
 
 interface RegressionResult {
-  model_type: string;
-  r_squared: number;
-  adjusted_r_squared: number;
-  mse: number;
-  rmse: number;
-  coefficients: { [key: string]: number };
-  intercept: number;
-  feature_importance: { [key: string]: number };
-  residuals_stats: {
-    mean: number;
-    std: number;
-    min: number;
-    max: number;
+  method: string;
+  equation: string;
+  coefficients: Record<string, number>;
+  metrics: {
+    r_squared: number;
+    adjusted_r_squared: number;
+    rmse: number;
+    mae: number;
+    mse: number;
   };
-  sample_size: number;
   predictions: number[];
   residuals: number[];
+  p_values?: Record<string, number>;
+  confidence_intervals?: Record<string, [number, number]>;
 }
 
 export function RegressionPanel({ data, dataColumns, className }: RegressionPanelProps) {
-  const [selectedTarget, setSelectedTarget] = useState<string>('');
-  const [selectedFeatures, setSelectedFeatures] = useState<string[]>([]);
+  const [selectedXColumns, setSelectedXColumns] = useState<string[]>([]);
+  const [selectedYColumn, setSelectedYColumn] = useState<string>('');
+  const [selectedMethod, setSelectedMethod] = useState<string>('linear');
   const [regressionResult, setRegressionResult] = useState<RegressionResult | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [activeTab, setActiveTab] = useState('model');
-  const [modelType, setModelType] = useState<'linear' | 'polynomial'>('linear');
+  const [activeTab, setActiveTab] = useState('regression');
   const [polynomialDegree, setPolynomialDegree] = useState(2);
-  const [newPrediction, setNewPrediction] = useState<{ [key: string]: number }>({});
+  const [testSize, setTestSize] = useState(0.2);
 
   const { executePython, isInitialized } = usePythonExecution();
-  const { toast } = useToast();
 
   // Get numeric columns for analysis
   const numericColumns = dataColumns.filter(col => {
@@ -70,181 +63,328 @@ export function RegressionPanel({ data, dataColumns, className }: RegressionPane
     return sampleValues.every(val => typeof val === 'number' && !isNaN(val));
   });
 
-  useEffect(() => {
-    if (numericColumns.length > 0 && !selectedTarget) {
-      setSelectedTarget(numericColumns[0]);
-      setSelectedFeatures(numericColumns.slice(1, Math.min(4, numericColumns.length)));
+  const regressionMethods = [
+    {
+      id: 'linear',
+      name: 'Linear Regression',
+      description: 'Fits a linear relationship between variables'
+    },
+    {
+      id: 'polynomial',
+      name: 'Polynomial Regression',
+      description: 'Fits a polynomial relationship of specified degree'
+    },
+    {
+      id: 'multiple',
+      name: 'Multiple Linear Regression',
+      description: 'Fits linear relationship with multiple predictors'
     }
-  }, [numericColumns]);
+  ];
 
   useEffect(() => {
-    if (selectedTarget && selectedFeatures.length > 0 && isInitialized) {
-      performRegression();
+    if (numericColumns.length >= 2) {
+      if (!selectedYColumn) {
+        setSelectedYColumn(numericColumns[0]);
+      }
+      if (selectedXColumns.length === 0) {
+        setSelectedXColumns([numericColumns[1]]);
+      }
     }
-  }, [selectedTarget, selectedFeatures, modelType, polynomialDegree, isInitialized]);
+  }, [numericColumns, selectedXColumns.length, selectedYColumn]);
 
-  const performRegression = async () => {
-    if (!isInitialized || !selectedTarget || selectedFeatures.length === 0) return;
+  const performRegression = useCallback(async () => {
+    if (!isInitialized || selectedXColumns.length === 0 || !selectedYColumn) return;
 
     setLoading(true);
     setError(null);
 
     try {
-      const code = `
+      let code = '';
+      
+      if (selectedMethod === 'linear' && selectedXColumns.length === 1) {
+        code = `
 import sys
 sys.path.append('/python')
 import pandas as pd
 import numpy as np
 from sklearn.linear_model import LinearRegression
-from sklearn.preprocessing import PolynomialFeatures, StandardScaler
-from sklearn.metrics import r2_score, mean_squared_error
-from sklearn.pipeline import Pipeline
+from sklearn.preprocessing import PolynomialFeatures
+from sklearn.model_selection import train_test_split
+from sklearn.metrics import r2_score, mean_squared_error, mean_absolute_error
 
 # Prepare data
 df = pd.DataFrame(${JSON.stringify(data)})
+X = df[${JSON.stringify(selectedXColumns)}].dropna()
+y = df['${selectedYColumn}'].dropna()
 
-# Check if columns exist
-missing_cols = [col for col in selected_features + [selected_target] if col not in df.columns]
-if missing_cols:
-    result = {'success': False, 'error': f'Columns not found: {missing_cols}'}
-else:
-    # Prepare features and target
-    X = df[selected_features].select_dtypes(include=[np.number]).dropna()
-    y = df[selected_target].dropna()
-    
-    # Align data
-    common_index = X.index.intersection(y.index)
-    X = X.loc[common_index]
-    y = y.loc[common_index]
-    
-    if len(X) == 0 or len(y) == 0:
-        result = {'success': False, 'error': 'No valid data points for regression'}
-    else:
-        # Create model pipeline
-        if model_type == 'linear':
-            model = Pipeline([
-                ('scaler', StandardScaler()),
-                ('regressor', LinearRegression())
-            ])
-        else:  # polynomial
-            model = Pipeline([
-                ('scaler', StandardScaler()),
-                ('poly', PolynomialFeatures(degree=${polynomialDegree}, include_bias=False)),
-                ('regressor', LinearRegression())
-            ])
-        
-        # Fit model
-        model.fit(X, y)
-        
-        # Make predictions
-        y_pred = model.predict(X)
-        
-        # Calculate metrics
-        r2 = r2_score(y, y_pred)
-        mse = mean_squared_error(y, y_pred)
-        rmse = np.sqrt(mse)
-        
-        # Get coefficients
-        if model_type == 'linear':
-            coefficients = dict(zip(selected_features, model.named_steps['regressor'].coef_))
-            intercept = model.named_steps['regressor'].intercept_
-        else:
-            # For polynomial, get feature names
-            poly_features = model.named_steps['poly'].get_feature_names_out(selected_features)
-            coefficients = dict(zip(poly_features, model.named_steps['regressor'].coef_))
-            intercept = model.named_steps['regressor'].intercept_
-        
-        # Feature importance (absolute coefficients)
-        feature_importance = {k: abs(v) for k, v in coefficients.items()}
-        feature_importance = dict(sorted(feature_importance.items(), key=lambda x: x[1], reverse=True))
-        
-        # Residuals analysis
-        residuals = y - y_pred
-        
-        # Calculate adjusted R-squared
-        n = len(y)
-        p = len(selected_features) if model_type == 'linear' else len(poly_features)
-        adjusted_r2 = 1 - (1 - r2) * (n - 1) / (n - p - 1)
-        
-        result = {
-            'success': True,
-            'model_type': model_type,
-            'r_squared': float(r2),
-            'adjusted_r_squared': float(adjusted_r2),
-            'mse': float(mse),
-            'rmse': float(rmse),
-            'coefficients': {k: float(v) for k, v in coefficients.items()},
-            'intercept': float(intercept),
-            'feature_importance': {k: float(v) for k, v in feature_importance.items()},
-            'residuals_stats': {
-                'mean': float(residuals.mean()),
-                'std': float(residuals.std()),
-                'min': float(residuals.min()),
-                'max': float(residuals.max())
-            },
-            'sample_size': len(X),
-            'predictions': y_pred.tolist(),
-            'residuals': residuals.tolist()
-        }
+# Align X and y
+common_idx = X.index.intersection(y.index)
+X = X.loc[common_idx]
+y = y.loc[common_idx]
 
+if len(X) < 10:
+    raise ValueError("Not enough data points for regression")
+
+# Train-test split
+X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=${testSize}, random_state=42)
+
+# Linear Regression
+model = LinearRegression()
+model.fit(X_train, y_train)
+
+# Predictions
+y_pred = model.predict(X_test)
+predictions = model.predict(X).tolist()
+
+# Calculate residuals
+residuals = (y - predictions).tolist()
+
+# Metrics
+r_squared = r2_score(y_test, y_pred)
+mse = mean_squared_error(y_test, y_pred)
+mae = mean_absolute_error(y_test, y_pred)
+rmse = np.sqrt(mse)
+
+# Adjusted R-squared
+n = len(y_test)
+p = len(selectedXColumns)
+adjusted_r_squared = 1 - (1 - r_squared) * (n - 1) / (n - p - 1)
+
+# Equation
+intercept = model.intercept_
+coefficient = model.coef_[0]
+equation = f"y = {coefficient:.4f} * {selectedXColumns[0]} + {intercept:.4f}"
+
+result = {
+    'method': 'Linear Regression',
+    'equation': equation,
+    'coefficients': {
+        'intercept': float(intercept),
+        'slope': float(coefficient)
+    },
+    'metrics': {
+        'r_squared': float(r_squared),
+        'adjusted_r_squared': float(adjusted_r_squared),
+        'rmse': float(rmse),
+        'mae': float(mae),
+        'mse': float(mse)
+    },
+    'predictions': predictions,
+    'residuals': residuals
+}
 result
-      `.replace('selected_features', JSON.stringify(selectedFeatures))
-        .replace('selected_target', `'${selectedTarget}'`)
-        .replace('model_type', `'${modelType}'`);
+        `;
+      } else if (selectedMethod === 'polynomial' && selectedXColumns.length === 1) {
+        code = `
+import sys
+sys.path.append('/python')
+import pandas as pd
+import numpy as np
+from sklearn.linear_model import LinearRegression
+from sklearn.preprocessing import PolynomialFeatures
+from sklearn.model_selection import train_test_split
+from sklearn.metrics import r2_score, mean_squared_error, mean_absolute_error
+
+# Prepare data
+df = pd.DataFrame(${JSON.stringify(data)})
+X = df[${JSON.stringify(selectedXColumns)}].dropna()
+y = df['${selectedYColumn}'].dropna()
+
+# Align X and y
+common_idx = X.index.intersection(y.index)
+X = X.loc[common_idx]
+y = y.loc[common_idx]
+
+if len(X) < 10:
+    raise ValueError("Not enough data points for regression")
+
+# Train-test split
+X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=${testSize}, random_state=42)
+
+# Polynomial features
+poly_features = PolynomialFeatures(degree=${polynomialDegree})
+X_poly = poly_features.fit_transform(X)
+X_train_poly = poly_features.transform(X_train)
+X_test_poly = poly_features.transform(X_test)
+
+# Polynomial Regression
+model = LinearRegression()
+model.fit(X_train_poly, y_train)
+
+# Predictions
+y_pred = model.predict(X_test_poly)
+predictions = model.predict(X_poly).tolist()
+
+# Calculate residuals
+residuals = (y - predictions).tolist()
+
+# Metrics
+r_squared = r2_score(y_test, y_pred)
+mse = mean_squared_error(y_test, y_pred)
+mae = mean_absolute_error(y_test, y_pred)
+rmse = np.sqrt(mse)
+
+# Adjusted R-squared
+n = len(y_test)
+p = poly_features.n_features_in_
+adjusted_r_squared = 1 - (1 - r_squared) * (n - 1) / (n - p - 1)
+
+# Equation (simplified)
+equation = f"y = polynomial function of degree {${polynomialDegree}}"
+
+# Coefficients
+coefficients = {}
+feature_names = poly_features.get_feature_names_out()
+for i, name in enumerate(feature_names):
+    coefficients[name] = float(model.coef_[i])
+
+result = {
+    'method': 'Polynomial Regression',
+    'equation': equation,
+    'coefficients': coefficients,
+    'metrics': {
+        'r_squared': float(r_squared),
+        'adjusted_r_squared': float(adjusted_r_squared),
+        'rmse': float(rmse),
+        'mae': float(mae),
+        'mse': float(mse)
+    },
+    'predictions': predictions,
+    'residuals': residuals
+}
+result
+        `;
+      } else if (selectedMethod === 'multiple') {
+        code = `
+import sys
+sys.path.append('/python')
+import pandas as pd
+import numpy as np
+from sklearn.linear_model import LinearRegression
+from sklearn.model_selection import train_test_split
+from sklearn.metrics import r2_score, mean_squared_error, mean_absolute_error
+
+# Prepare data
+df = pd.DataFrame(${JSON.stringify(data)})
+X = df[${JSON.stringify(selectedXColumns)}].dropna()
+y = df['${selectedYColumn}'].dropna()
+
+# Align X and y
+common_idx = X.index.intersection(y.index)
+X = X.loc[common_idx]
+y = y.loc[common_idx]
+
+if len(X) < 10:
+    raise ValueError("Not enough data points for regression")
+
+# Train-test split
+X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=${testSize}, random_state=42)
+
+# Multiple Linear Regression
+model = LinearRegression()
+model.fit(X_train, y_train)
+
+# Predictions
+y_pred = model.predict(X_test)
+predictions = model.predict(X).tolist()
+
+# Calculate residuals
+residuals = (y - predictions).tolist()
+
+# Metrics
+r_squared = r2_score(y_test, y_pred)
+mse = mean_squared_error(y_test, y_pred)
+mae = mean_absolute_error(y_test, y_pred)
+rmse = np.sqrt(mse)
+
+# Adjusted R-squared
+n = len(y_test)
+p = len(selectedXColumns)
+adjusted_r_squared = 1 - (1 - r_squared) * (n - 1) / (n - p - 1)
+
+# Equation
+intercept = model.intercept_
+equation_parts = [f"{model.coef_[i]:.4f} * {selectedXColumns[i]}" for i in range(len(selectedXColumns))]
+equation = f"y = {' + '.join(equation_parts)} + {intercept:.4f}"
+
+# Coefficients
+coefficients = {'intercept': float(intercept)}
+for i, col in enumerate(selectedXColumns):
+    coefficients[col] = float(model.coef_[i])
+
+result = {
+    'method': 'Multiple Linear Regression',
+    'equation': equation,
+    'coefficients': coefficients,
+    'metrics': {
+        'r_squared': float(r_squared),
+        'adjusted_r_squared': float(adjusted_r_squared),
+        'rmse': float(rmse),
+        'mae': float(mae),
+        'mse': float(mse)
+    },
+    'predictions': predictions,
+    'residuals': residuals
+}
+result
+        `;
+      }
 
       const result = await executePython(code);
       
-      if ((result as any).success) {
-        setRegressionResult(result as any);
+      if (result) {
+        setRegressionResult(result as RegressionResult);
       } else {
-        setError((result as any).error || 'Failed to perform regression');
+        setError('Failed to perform regression analysis');
       }
     } catch (error) {
-      setError('Error performing regression');
-      console.error('Regression error:', error);
+      setError('Error performing regression analysis');
+      logger.error('Regression analysis error:', error);
     } finally {
       setLoading(false);
     }
-  };
+  }, [isInitialized, selectedXColumns, selectedYColumn, selectedMethod, testSize, polynomialDegree, data, executePython]);
 
   const renderScatterPlot = () => {
-    if (!regressionResult || !selectedTarget) return null;
+    if (!regressionResult || selectedXColumns.length !== 1) return null;
 
-    const actualValues = data.map(row => row[selectedTarget]).filter(val => typeof val === 'number' && !isNaN(val));
-    const predictions = regressionResult.predictions;
+    // const xValues = data.map(row => row[selectedXColumns[0]]).filter(val => typeof val === 'number');
+    // const yValues = data.map(row => row[selectedYColumn]).filter(val => typeof val === 'number');
+    // const predictions = regressionResult.predictions;
 
-    const plotData = [
-      {
-        x: actualValues,
-        y: predictions,
-        type: 'scatter',
-        mode: 'markers',
-        name: 'Actual vs Predicted',
-        marker: { color: '#3b82f6', size: 6, opacity: 0.7 }
-      },
-      {
-        x: [Math.min(...actualValues), Math.max(...actualValues)],
-        y: [Math.min(...actualValues), Math.max(...actualValues)],
-        type: 'scatter',
-        mode: 'lines',
-        name: 'Perfect Fit',
-        line: { color: '#ef4444', dash: 'dash' }
-      }
-    ];
+    // Plot data and layout configuration for Plotly regression chart
+    // const plotData = [
+    //   {
+    //     x: xValues,
+    //     y: yValues,
+    //     type: 'scatter',
+    //     mode: 'markers',
+    //     name: 'Actual Data',
+    //     marker: { color: '#3b82f6', size: 6, opacity: 0.7 }
+    //   },
+    //   {
+    //     x: xValues,
+    //     y: predictions,
+    //     type: 'scatter',
+    //     mode: 'lines',
+    //     name: 'Regression Line',
+    //     line: { color: '#ef4444', width: 3 }
+    //   }
+    // ];
 
-    const layout = {
-      title: `Actual vs Predicted - ${selectedTarget}`,
-      xaxis: { title: 'Actual Values' },
-      yaxis: { title: 'Predicted Values' },
-      margin: { l: 60, r: 50, t: 50, b: 60 },
-      paper_bgcolor: 'rgba(0,0,0,0)',
-      plot_bgcolor: 'rgba(0,0,0,0)',
-      font: { color: 'hsl(var(--foreground))' }
-    };
+    // const layout = {
+    //   title: `${selectedYColumn} vs ${selectedXColumns[0]}`,
+    //   xaxis: { title: selectedXColumns[0] },
+    //   yaxis: { title: selectedYColumn },
+    //   margin: { l: 60, r: 50, t: 50, b: 60 },
+    //   paper_bgcolor: 'rgba(0,0,0,0)',
+    //   plot_bgcolor: 'rgba(0,0,0,0)',
+    //   font: { color: 'hsl(var(--foreground))' }
+    // };
 
     return (
-      <div className="h-96 w-full" id="scatter-plot">
-        {/* Plotly scatter plot will be rendered here */}
+      <div className="h-96 w-full" id="regression-scatter">
+        {/* Plotly chart will be rendered here */}
       </div>
     );
   };
@@ -252,165 +392,44 @@ result
   const renderResidualsPlot = () => {
     if (!regressionResult) return null;
 
-    const residuals = regressionResult.residuals;
-    const predictions = regressionResult.predictions;
+    // const predictions = regressionResult.predictions;
+    // const residuals = regressionResult.residuals;
 
-    const plotData = [
-      {
-        x: predictions,
-        y: residuals,
-        type: 'scatter',
-        mode: 'markers',
-        name: 'Residuals',
-        marker: { color: '#3b82f6', size: 6, opacity: 0.7 }
-      },
-      {
-        x: [Math.min(...predictions), Math.max(...predictions)],
-        y: [0, 0],
-        type: 'scatter',
-        mode: 'lines',
-        name: 'Zero Line',
-        line: { color: '#ef4444', dash: 'dash' }
-      }
-    ];
+    // Plot data and layout configuration for Plotly residuals chart
+    // const plotData = [
+    //   {
+    //     x: predictions,
+    //     y: residuals,
+    //     type: 'scatter',
+    //     mode: 'markers',
+    //     name: 'Residuals',
+    //     marker: { color: '#10b981', size: 6, opacity: 0.7 }
+    //   },
+    //   {
+    //     x: predictions,
+    //     y: new Array(predictions.length).fill(0),
+    //     type: 'scatter',
+    //     mode: 'lines',
+    //     name: 'Zero Line',
+    //     line: { color: '#ef4444', width: 2, dash: 'dash' }
+    //   }
+    // ];
 
-    const layout = {
-      title: 'Residuals Plot',
-      xaxis: { title: 'Predicted Values' },
-      yaxis: { title: 'Residuals' },
-      margin: { l: 60, r: 50, t: 50, b: 60 },
-      paper_bgcolor: 'rgba(0,0,0,0)',
-      plot_bgcolor: 'rgba(0,0,0,0)',
-      font: { color: 'hsl(var(--foreground))' }
-    };
+    // const layout = {
+    //   title: 'Residual Plot',
+    //   xaxis: { title: 'Predicted Values' },
+    //   yaxis: { title: 'Residuals' },
+    //   margin: { l: 60, r: 50, t: 50, b: 60 },
+    //   paper_bgcolor: 'rgba(0,0,0,0)',
+    //   plot_bgcolor: 'rgba(0,0,0,0)',
+    //   font: { color: 'hsl(var(--foreground))' }
+    // };
 
     return (
       <div className="h-96 w-full" id="residuals-plot">
-        {/* Plotly residuals plot will be rendered here */}
+        {/* Plotly chart will be rendered here */}
       </div>
     );
-  };
-
-  const renderCoefficients = () => {
-    if (!regressionResult) return null;
-
-    const { coefficients, intercept } = regressionResult;
-
-    return (
-      <div className="space-y-4">
-        <div className="p-4 bg-muted/50 rounded-lg">
-          <div className="text-sm font-medium mb-2">Intercept</div>
-          <div className="text-2xl font-bold">{intercept.toFixed(4)}</div>
-        </div>
-        
-        <div className="space-y-2">
-          <h4 className="font-medium">Coefficients</h4>
-          {Object.entries(coefficients).map(([feature, coef]) => (
-            <div key={feature} className="flex items-center justify-between p-2 border rounded">
-              <span className="text-sm font-mono">{feature}</span>
-              <Badge variant={coef >= 0 ? 'default' : 'destructive'}>
-                {coef >= 0 ? '+' : ''}{coef.toFixed(4)}
-              </Badge>
-            </div>
-          ))}
-        </div>
-      </div>
-    );
-  };
-
-  const renderFeatureImportance = () => {
-    if (!regressionResult) return null;
-
-    const { feature_importance } = regressionResult;
-    const maxImportance = Math.max(...Object.values(feature_importance));
-
-    return (
-      <div className="space-y-2">
-        {Object.entries(feature_importance).map(([feature, importance]) => (
-          <div key={feature}>
-            <div className="flex items-center justify-between mb-1">
-              <span className="text-sm font-medium">{feature}</span>
-              <span className="text-sm text-muted-foreground">{importance.toFixed(4)}</span>
-            </div>
-            <div className="w-full bg-muted rounded-full h-2">
-              <div 
-                className="bg-primary h-2 rounded-full" 
-                style={{ width: `${(importance / maxImportance) * 100}%` }}
-              />
-            </div>
-          </div>
-        ))}
-      </div>
-    );
-  };
-
-  const renderMetrics = () => {
-    if (!regressionResult) return null;
-
-    const { r_squared, adjusted_r_squared, mse, rmse, sample_size } = regressionResult;
-
-    return (
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-        <Card>
-          <CardContent className="p-4">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm font-medium text-muted-foreground">R²</p>
-                <p className="text-2xl font-bold">{r_squared.toFixed(4)}</p>
-              </div>
-              <BarChart3 className="h-8 w-8 text-primary" />
-            </div>
-          </CardContent>
-        </Card>
-        
-        <Card>
-          <CardContent className="p-4">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm font-medium text-muted-foreground">Adj. R²</p>
-                <p className="text-2xl font-bold">{adjusted_r_squared.toFixed(4)}</p>
-              </div>
-              <Activity className="h-8 w-8 text-green-600" />
-            </div>
-          </CardContent>
-        </Card>
-        
-        <Card>
-          <CardContent className="p-4">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm font-medium text-muted-foreground">RMSE</p>
-                <p className="text-2xl font-bold">{rmse.toFixed(4)}</p>
-              </div>
-              <Target className="h-8 w-8 text-yellow-600" />
-            </div>
-          </CardContent>
-        </Card>
-        
-        <Card>
-          <CardContent className="p-4">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm font-medium text-muted-foreground">Sample Size</p>
-                <p className="text-2xl font-bold">{sample_size}</p>
-              </div>
-              <Calculator className="h-8 w-8 text-blue-600" />
-            </div>
-          </CardContent>
-        </Card>
-      </div>
-    );
-  };
-
-  const makePrediction = () => {
-    if (!regressionResult || selectedFeatures.length === 0) return;
-
-    // This would need to be implemented with the actual model
-    // For now, we'll show a placeholder
-    toast({
-      title: "Prediction",
-      description: "Prediction feature coming soon!",
-    });
   };
 
   const exportRegression = () => {
@@ -418,11 +437,14 @@ result
 
     const exportData = {
       timestamp: new Date().toISOString(),
-      target: selectedTarget,
-      features: selectedFeatures,
-      modelType: modelType,
-      polynomialDegree: polynomialDegree,
-      results: regressionResult
+      x_columns: selectedXColumns,
+      y_column: selectedYColumn,
+      method: regressionResult.method,
+      result: regressionResult,
+      parameters: {
+        polynomial_degree: polynomialDegree,
+        test_size: testSize
+      }
     };
 
     const blob = new Blob([JSON.stringify(exportData, null, 2)], { 
@@ -431,7 +453,7 @@ result
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `regression-${selectedTarget}-${Date.now()}.json`;
+    a.download = `regression-${selectedYColumn}-${Date.now()}.json`;
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
@@ -456,11 +478,11 @@ result
       <Card className={className}>
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
-            <TrendingUp className="h-5 w-5" />
+            <Target className="h-5 w-5" />
             Regression Analysis
           </CardTitle>
           <CardDescription>
-            Build predictive models and analyze relationships
+            Analyze relationships and predict outcomes using regression models
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -481,11 +503,11 @@ result
         <div className="flex items-center justify-between">
           <div>
             <CardTitle className="flex items-center gap-2">
-              <TrendingUp className="h-5 w-5" />
+              <Target className="h-5 w-5" />
               Regression Analysis
             </CardTitle>
             <CardDescription>
-              Build predictive models and analyze relationships
+              Analyze relationships and predict outcomes using regression models
             </CardDescription>
           </div>
           <div className="flex items-center gap-2">
@@ -498,12 +520,39 @@ result
       </CardHeader>
       
       <CardContent>
+        {/* Variable Selection */}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
           <div>
-            <label className="text-sm font-medium mb-2 block">Target Variable</label>
-            <Select value={selectedTarget} onValueChange={setSelectedTarget}>
+            <label className="text-sm font-medium mb-2 block">Independent Variables (X)</label>
+            <div className="flex flex-wrap gap-2">
+              {numericColumns.filter(col => col !== selectedYColumn).map(col => (
+                <Badge 
+                  key={col}
+                  variant={selectedXColumns.includes(col) ? 'default' : 'outline'}
+                  className="cursor-pointer"
+                  onClick={() => {
+                    if (selectedXColumns.includes(col)) {
+                      setSelectedXColumns(selectedXColumns.filter(c => c !== col));
+                    } else {
+                      if (selectedMethod === 'linear' || selectedMethod === 'polynomial') {
+                        setSelectedXColumns([col]);
+                      } else {
+                        setSelectedXColumns([...selectedXColumns, col]);
+                      }
+                    }
+                  }}
+                >
+                  {col}
+                </Badge>
+              ))}
+            </div>
+          </div>
+          
+          <div>
+            <label className="text-sm font-medium mb-2 block">Dependent Variable (Y)</label>
+            <Select value={selectedYColumn} onValueChange={setSelectedYColumn}>
               <SelectTrigger>
-                <SelectValue placeholder="Select target" />
+                <SelectValue placeholder="Select Y variable" />
               </SelectTrigger>
               <SelectContent>
                 {numericColumns.map(col => (
@@ -512,61 +561,81 @@ result
               </SelectContent>
             </Select>
           </div>
-          
+        </div>
+
+        {/* Method Selection and Parameters */}
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
           <div>
-            <label className="text-sm font-medium mb-2 block">Model Type</label>
-            <Select value={modelType} onValueChange={(value: any) => setModelType(value)}>
+            <label className="text-sm font-medium mb-2 block">Regression Method</label>
+            <Select value={selectedMethod} onValueChange={(value) => {
+              setSelectedMethod(value);
+              if (value === 'linear' || value === 'polynomial') {
+                setSelectedXColumns(selectedXColumns.slice(0, 1));
+              }
+            }}>
               <SelectTrigger>
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="linear">Linear Regression</SelectItem>
-                <SelectItem value="polynomial">Polynomial Regression</SelectItem>
+                {regressionMethods.map(method => (
+                  <SelectItem key={method.id} value={method.id}>
+                    {method.name}
+                  </SelectItem>
+                ))}
               </SelectContent>
             </Select>
           </div>
-        </div>
-
-        {modelType === 'polynomial' && (
-          <div className="mb-6">
-            <label className="text-sm font-medium mb-2 block">Polynomial Degree: {polynomialDegree}</label>
-            <div className="flex items-center gap-4">
-              <input
-                type="range"
+          
+          {selectedMethod === 'polynomial' && (
+            <div>
+              <label className="text-sm font-medium mb-2 block">Polynomial Degree: {polynomialDegree}</label>
+              <Input
+                type="number"
                 min="2"
                 max="5"
                 value={polynomialDegree}
                 onChange={(e) => setPolynomialDegree(Number(e.target.value))}
-                className="flex-1"
+                className="mt-2"
               />
-              <span className="text-sm text-muted-foreground w-8">{polynomialDegree}</span>
             </div>
+          )}
+          
+          <div>
+            <label className="text-sm font-medium mb-2 block">Test Size: {testSize}</label>
+            <Input
+              type="number"
+              min="0.1"
+              max="0.5"
+              step="0.1"
+              value={testSize}
+              onChange={(e) => setTestSize(Number(e.target.value))}
+              className="mt-2"
+            />
           </div>
-        )}
+        </div>
 
-        <div className="mb-6">
-          <label className="text-sm font-medium mb-2 block">Feature Variables</label>
-          <div className="flex flex-wrap gap-2">
-            {numericColumns.filter(col => col !== selectedTarget).map(col => (
-              <Badge 
-                key={col}
-                variant={selectedFeatures.includes(col) ? 'default' : 'outline'}
-                className="cursor-pointer"
-                onClick={() => {
-                  if (selectedFeatures.includes(col)) {
-                    setSelectedFeatures(selectedFeatures.filter(f => f !== col));
-                  } else {
-                    setSelectedFeatures([...selectedFeatures, col]);
-                  }
-                }}
-              >
-                {col}
-              </Badge>
-            ))}
+        {/* Method Info */}
+        <div className="mb-4 p-3 bg-muted/50 rounded-lg">
+          <div className="flex items-center gap-2 mb-1">
+            <Info className="h-4 w-4" />
+            <span className="font-medium text-sm">
+              {regressionMethods.find(m => m.id === selectedMethod)?.name}
+            </span>
           </div>
-          <p className="text-xs text-muted-foreground mt-2">
-            Click to select/deselect features (minimum 1 required)
+          <p className="text-sm text-muted-foreground">
+            {regressionMethods.find(m => m.id === selectedMethod)?.description}
           </p>
+        </div>
+
+        {/* Action Button */}
+        <div className="flex items-center gap-2 mb-6">
+          <Button 
+            onClick={performRegression} 
+            disabled={selectedXColumns.length === 0 || !selectedYColumn}
+          >
+            <Target className="h-4 w-4 mr-2" />
+            Perform Regression
+          </Button>
         </div>
 
         {error && (
@@ -581,114 +650,119 @@ result
         {loading && (
           <div className="mb-4 flex items-center gap-2">
             <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-primary"></div>
-            <span className="text-sm text-muted-foreground">Building regression model...</span>
+            <span className="text-sm text-muted-foreground">Performing regression analysis...</span>
           </div>
         )}
 
         {regressionResult && (
-          <Tabs value={activeTab} onValueChange={setActiveTab}>
-            <TabsList className="grid w-full grid-cols-4">
-              <TabsTrigger value="model">Model</TabsTrigger>
-              <TabsTrigger value="visualization">Visualization</TabsTrigger>
-              <TabsTrigger value="coefficients">Coefficients</TabsTrigger>
-              <TabsTrigger value="prediction">Prediction</TabsTrigger>
-            </TabsList>
+          <>
+            {/* Results Summary */}
+            <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
+              <Card>
+                <CardContent className="p-4">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <p className="text-sm font-medium text-muted-foreground">R²</p>
+                      <p className="text-2xl font-bold">
+                        {regressionResult.metrics.r_squared.toFixed(3)}
+                      </p>
+                    </div>
+                    <TrendingUp className="h-8 w-8 text-green-600" />
+                  </div>
+                </CardContent>
+              </Card>
+              
+              <Card>
+                <CardContent className="p-4">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <p className="text-sm font-medium text-muted-foreground">Adjusted R²</p>
+                      <p className="text-2xl font-bold">
+                        {regressionResult.metrics.adjusted_r_squared.toFixed(3)}
+                      </p>
+                    </div>
+                    <BarChart3 className="h-8 w-8 text-blue-600" />
+                  </div>
+                </CardContent>
+              </Card>
+              
+              <Card>
+                <CardContent className="p-4">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <p className="text-sm font-medium text-muted-foreground">RMSE</p>
+                      <p className="text-2xl font-bold">
+                        {regressionResult.metrics.rmse.toFixed(3)}
+                      </p>
+                    </div>
+                    <Activity className="h-8 w-8 text-orange-600" />
+                  </div>
+                </CardContent>
+              </Card>
+              
+              <Card>
+                <CardContent className="p-4">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <p className="text-sm font-medium text-muted-foreground">MAE</p>
+                      <p className="text-2xl font-bold">
+                        {regressionResult.metrics.mae.toFixed(3)}
+                      </p>
+                    </div>
+                    <Calculator className="h-8 w-8 text-purple-600" />
+                  </div>
+                </CardContent>
+              </Card>
+            </div>
 
-            <TabsContent value="model" className="space-y-4">
-              {renderMetrics()}
-            </TabsContent>
+            {/* Regression Equation */}
+            <Card className="mb-6">
+              <CardHeader>
+                <CardTitle className="text-lg">Regression Equation</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="p-4 bg-muted/50 rounded-lg">
+                  <code className="text-sm font-mono">{regressionResult.equation}</code>
+                </div>
+              </CardContent>
+            </Card>
 
-            <TabsContent value="visualization" className="space-y-4">
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            {/* Visualization */}
+            <Tabs value={activeTab} onValueChange={setActiveTab}>
+              <TabsList className="grid w-full grid-cols-2">
+                <TabsTrigger value="regression">Regression Plot</TabsTrigger>
+                <TabsTrigger value="residuals">Residuals</TabsTrigger>
+              </TabsList>
+
+              <TabsContent value="regression" className="space-y-4">
                 <Card>
                   <CardHeader>
-                    <CardTitle className="text-lg">Actual vs Predicted</CardTitle>
+                    <CardTitle className="text-lg">Regression Visualization</CardTitle>
                     <CardDescription>
-                      How well the model fits the data
+                      {selectedYColumn} vs {selectedXColumns.join(', ')}
                     </CardDescription>
                   </CardHeader>
                   <CardContent>
                     {renderScatterPlot()}
                   </CardContent>
                 </Card>
-                
+              </TabsContent>
+
+              <TabsContent value="residuals" className="space-y-4">
                 <Card>
                   <CardHeader>
-                    <CardTitle className="text-lg">Residuals Plot</CardTitle>
+                    <CardTitle className="text-lg">Residual Analysis</CardTitle>
                     <CardDescription>
-                      Check for patterns in prediction errors
+                      Check model assumptions and fit quality
                     </CardDescription>
                   </CardHeader>
                   <CardContent>
                     {renderResidualsPlot()}
                   </CardContent>
                 </Card>
-              </div>
-            </TabsContent>
-
-            <TabsContent value="coefficients" className="space-y-4">
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <Card>
-                  <CardHeader>
-                    <CardTitle className="text-lg">Model Coefficients</CardTitle>
-                    <CardDescription>
-                      Linear equation parameters
-                    </CardDescription>
-                  </CardHeader>
-                  <CardContent>
-                    {renderCoefficients()}
-                  </CardContent>
-                </Card>
-                
-                <Card>
-                  <CardHeader>
-                    <CardTitle className="text-lg">Feature Importance</CardTitle>
-                    <CardDescription>
-                      Relative importance of each feature
-                    </CardDescription>
-                  </CardHeader>
-                  <CardContent>
-                    {renderFeatureImportance()}
-                  </CardContent>
-                </Card>
-              </div>
-            </TabsContent>
-
-            <TabsContent value="prediction" className="space-y-4">
-              <Card>
-                <CardHeader>
-                  <CardTitle className="text-lg">Make Prediction</CardTitle>
-                  <CardDescription>
-                    Predict the target value for new data
-                  </CardDescription>
-                </CardHeader>
-                <CardContent>
-                  <div className="space-y-4">
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                      {selectedFeatures.map(feature => (
-                        <div key={feature}>
-                          <label className="text-sm font-medium mb-2 block">{feature}</label>
-                          <Input
-                            type="number"
-                            placeholder={`Enter ${feature}`}
-                            value={newPrediction[feature] || ''}
-                            onChange={(e) => setNewPrediction({
-                              ...newPrediction,
-                              [feature]: Number(e.target.value)
-                            })}
-                          />
-                        </div>
-                      ))}
-                    </div>
-                    <Button onClick={makePrediction} className="w-full">
-                      <Zap className="h-4 w-4 mr-2" />
-                      Make Prediction
-                    </Button>
-                  </div>
-                </CardContent>
-              </Card>
-            </TabsContent>
-          </Tabs>
+              </TabsContent>
+            </Tabs>
+          </>
         )}
       </CardContent>
     </Card>

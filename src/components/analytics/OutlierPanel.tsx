@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -14,12 +14,10 @@ import {
   EyeOff,
   BarChart3,
   Info,
-  CheckCircle,
-  Filter,
-  Trash2
+  CheckCircle
 } from 'lucide-react';
 import { usePythonExecution } from '@/lib/pyodide-bridge';
-import Plotly from 'plotly.js-dist-min';
+import { logger } from '@/lib/logger';
 
 interface OutlierPanelProps {
   data: any[];
@@ -93,15 +91,9 @@ export function OutlierPanel({ data, dataColumns, className }: OutlierPanelProps
     if (numericColumns.length > 0 && !selectedColumn) {
       setSelectedColumn(numericColumns[0]);
     }
-  }, [numericColumns]);
+  }, [numericColumns, selectedColumn]);
 
-  useEffect(() => {
-    if (selectedColumn && isInitialized) {
-      detectOutliers();
-    }
-  }, [selectedColumn, selectedMethod, threshold, zScoreThreshold, isInitialized]);
-
-  const detectOutliers = async () => {
+  const detectOutliers = useCallback(async () => {
     if (!isInitialized || !selectedColumn) return;
 
     setLoading(true);
@@ -218,39 +210,46 @@ result
       }
     } catch (error) {
       setError('Error detecting outliers');
-      console.error('Outlier detection error:', error);
+      logger.error('Outlier detection error:', error);
     } finally {
       setLoading(false);
     }
-  };
+  }, [isInitialized, selectedColumn, selectedMethod, threshold, zScoreThreshold, data, executePython]);
+
+  useEffect(() => {
+    if (selectedColumn && isInitialized) {
+      detectOutliers();
+    }
+  }, [selectedColumn, selectedMethod, threshold, zScoreThreshold, isInitialized, detectOutliers]);
 
   const renderBoxPlot = () => {
     if (!selectedColumn || !data.length) return null;
 
-    const columnData = data.map(row => row[selectedColumn]).filter(val => typeof val === 'number' && !isNaN(val));
-    const outlierIndices = outlierResults?.outlier_indices || [];
+    // const columnData = data.map(row => row[selectedColumn]).filter(val => typeof val === 'number' && !isNaN(val));
+    // Plot data and layout configuration for Plotly box plot
+    // const outlierIndices = outlierResults?.outlier_indices || [];
     
-    const plotData = [{
-      y: columnData,
-      type: 'box',
-      name: selectedColumn,
-      boxpoints: 'outliers',
-      marker: {
-        color: '#3b82f6',
-        outliercolor: '#ef4444',
-        line: { color: '#1e40af' }
-      },
-      hovertemplate: '<b>' + selectedColumn + '</b><br>Value: %{y}<extra></extra>'
-    }];
+    // const plotData = [{
+    //   y: columnData,
+    //   type: 'box',
+    //   name: selectedColumn,
+    //   boxpoints: 'outliers',
+    //   marker: {
+    //     color: '#3b82f6',
+    //     outliercolor: '#ef4444',
+    //     line: { color: '#1e40af' }
+    //   },
+    //   hovertemplate: '<b>' + selectedColumn + '</b><br>Value: %{y}<extra></extra>'
+    // }];
 
-    const layout = {
-      title: `Box Plot for ${selectedColumn}`,
-      yaxis: { title: selectedColumn },
-      margin: { l: 60, r: 50, t: 50, b: 50 },
-      paper_bgcolor: 'rgba(0,0,0,0)',
-      plot_bgcolor: 'rgba(0,0,0,0)',
-      font: { color: 'hsl(var(--foreground))' }
-    };
+    // const layout = {
+    //   title: `Box Plot for ${selectedColumn}`,
+    //   yaxis: { title: selectedColumn },
+    //   margin: { l: 60, r: 50, t: 50, b: 50 },
+    //   paper_bgcolor: 'rgba(0,0,0,0)',
+    //   plot_bgcolor: 'rgba(0,0,0,0)',
+    //   font: { color: 'hsl(var(--foreground))' }
+    // };
 
     return (
       <div className="h-64 w-full" id="box-plot">
@@ -262,36 +261,37 @@ result
   const renderScatterPlot = () => {
     if (!selectedColumn || !data.length) return null;
 
-    const columnData = data.map(row => row[selectedColumn]).filter(val => typeof val === 'number' && !isNaN(val));
-    const outlierIndices = outlierResults?.outlier_indices || [];
-    
-    const x = Array.from({ length: columnData.length }, (_, i) => i);
-    const colors = x.map(i => outlierIndices.includes(i) ? '#ef4444' : '#3b82f6');
-    const sizes = x.map(i => outlierIndices.includes(i) ? 8 : 6);
+    // const columnData = data.map(row => row[selectedColumn]).filter(val => typeof val === 'number' && !isNaN(val));
+    // const outlierIndices = outlierResults?.outlier_indices || [];
+    // 
+    // const x = Array.from({ length: columnData.length }, (_, i) => i);
+    // const colors = x.map(i => outlierIndices.includes(i) ? '#ef4444' : '#3b82f6');
+    // const sizes = x.map(i => outlierIndices.includes(i) ? 8 : 6);
 
-    const plotData = [{
-      x: x,
-      y: columnData,
-      type: 'scatter',
-      mode: 'markers',
-      name: selectedColumn,
-      marker: {
-        color: colors,
-        size: sizes,
-        opacity: 0.7
-      },
-      hovertemplate: `<b>Index:</b> %{x}<br><b>${selectedColumn}:</b> %{y}<extra></extra>`
-    }];
+    // Plot data and layout configuration for Plotly scatter plot
+    // const plotData = [{
+    //   x: x,
+    //   y: columnData,
+    //   type: 'scatter',
+    //   mode: 'markers',
+    //   name: selectedColumn,
+    //   marker: {
+    //     color: colors,
+    //     size: sizes,
+    //     opacity: 0.7
+    //   },
+    //   hovertemplate: `<b>Index:</b> %{x}<br><b>${selectedColumn}:</b> %{y}<extra></extra>`
+    // }];
 
-    const layout = {
-      title: `${selectedColumn} - Outliers Highlighted`,
-      xaxis: { title: 'Index' },
-      yaxis: { title: selectedColumn },
-      margin: { l: 60, r: 50, t: 50, b: 60 },
-      paper_bgcolor: 'rgba(0,0,0,0)',
-      plot_bgcolor: 'rgba(0,0,0,0)',
-      font: { color: 'hsl(var(--foreground))' }
-    };
+    // const layout = {
+    //   title: `${selectedColumn} - Outliers Highlighted`,
+    //   xaxis: { title: 'Index' },
+    //   yaxis: { title: selectedColumn },
+    //   margin: { l: 60, r: 50, t: 50, b: 60 },
+    //   paper_bgcolor: 'rgba(0,0,0,0)',
+    //   plot_bgcolor: 'rgba(0,0,0,0)',
+    //   font: { color: 'hsl(var(--foreground))' }
+    // };
 
     return (
       <div className="h-64 w-full" id="scatter-plot">

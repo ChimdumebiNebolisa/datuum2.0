@@ -1,4 +1,6 @@
 // Simple Python execution worker (Pyodide will be loaded dynamically)
+import { logger } from '@/lib/logger';
+import { getPyodideScriptUrl, getPyodideIndexUrl, getPyodidePackages, logPyodideConfig } from '@/lib/pyodide-config';
 
 // TypeScript declarations for worker environment
 declare global {
@@ -16,11 +18,18 @@ async function initializePyodide() {
   if (isInitialized) return pyodide;
   
   try {
+    // Log configuration in debug mode
+    logPyodideConfig();
+    
+    // Get configuration
+    const scriptUrl = getPyodideScriptUrl();
+    const indexUrl = getPyodideIndexUrl();
+    
     // Load Pyodide script dynamically
     if (typeof window !== 'undefined') {
       // Browser environment - load Pyodide from CDN
       const script = document.createElement('script');
-      script.src = 'https://cdn.jsdelivr.net/pyodide/v0.26.0/full/pyodide.js';
+      script.src = scriptUrl;
       document.head.appendChild(script);
       
       await new Promise((resolve, reject) => {
@@ -32,33 +41,27 @@ async function initializePyodide() {
       const { loadPyodide } = window.pyodide;
       
       pyodide = await loadPyodide({
-        indexURL: "https://cdn.jsdelivr.net/pyodide/v0.26.0/full/"
+        indexURL: indexUrl
       });
     } else {
       // Worker environment - use importScripts
-      importScripts('https://cdn.jsdelivr.net/pyodide/v0.26.0/full/pyodide.js');
+      importScripts(scriptUrl);
       // @ts-ignore
       const { loadPyodide } = self.pyodide;
       
       pyodide = await loadPyodide({
-        indexURL: "https://cdn.jsdelivr.net/pyodide/v0.26.0/full/"
+        indexURL: indexUrl
       });
     }
 
-    // Load essential packages
-    await pyodide.loadPackage([
-      'numpy',
-      'pandas',
-      'scipy',
-      'matplotlib',
-      'scikit-learn',
-      'seaborn'
-    ]);
+    // Load essential packages from configuration
+    const packages = getPyodidePackages();
+    await pyodide.loadPackage(packages);
 
     isInitialized = true;
     return pyodide;
   } catch (error) {
-    console.error('Failed to initialize Pyodide:', error);
+    logger.error('Failed to initialize Pyodide:', error);
     throw error;
   }
 }
@@ -83,7 +86,7 @@ async function executePython(code: string, context: Record<string, any> = {}) {
     
     return result;
   } catch (error) {
-    console.error('Python execution error:', error);
+    logger.error('Python execution error:', error);
     throw error;
   }
 }
@@ -99,7 +102,7 @@ async function loadPythonModule(moduleName: string) {
     py.runPython(code);
     return py.globals.get(moduleName.replace('.py', ''));
   } catch (error) {
-    console.error(`Failed to load module ${moduleName}:`, error);
+    logger.error(`Failed to load module ${moduleName}:`, error);
     throw error;
   }
 }

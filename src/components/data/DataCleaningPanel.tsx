@@ -1,13 +1,13 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Checkbox } from '@/components/ui/checkbox';
+// import { Checkbox } from '@/components/ui/checkbox';
 import { 
   Wrench, 
   AlertTriangle, 
@@ -15,10 +15,7 @@ import {
   Trash2, 
   RotateCcw,
   Search,
-  Filter,
   Type,
-  Hash,
-  Calendar,
   Zap,
   Copy
 } from 'lucide-react';
@@ -27,7 +24,7 @@ import { useToast } from '@/lib/toast';
 interface DataCleaningPanelProps {
   data: any[];
   columns: string[];
-  onDataChange?: (newData: any[]) => void;
+  onDataChange?: (_newData: any[]) => void;
   className?: string;
 }
 
@@ -63,11 +60,7 @@ export function DataCleaningPanel({ data, columns, onDataChange, className }: Da
 
   const { toast } = useToast();
 
-  useEffect(() => {
-    detectIssues();
-  }, [data]);
-
-  const detectIssues = () => {
+  const detectIssues = useCallback(() => {
     const detectedIssues: CleaningIssue[] = [];
 
     columns.forEach(column => {
@@ -146,14 +139,17 @@ export function DataCleaningPanel({ data, columns, onDataChange, className }: Da
     });
 
     setIssues(detectedIssues);
-  };
+  }, [data, columns]);
+
+  useEffect(() => {
+    detectIssues();
+  }, [detectIssues]);
 
   const addMissingValueOperation = () => {
     if (!selectedColumn) {
       toast({
         title: "Error",
         description: "Please select a column",
-        variant: "destructive"
       });
       return;
     }
@@ -177,7 +173,6 @@ export function DataCleaningPanel({ data, columns, onDataChange, className }: Da
       toast({
         title: "Error",
         description: "Please select a column",
-        variant: "destructive"
       });
       return;
     }
@@ -200,7 +195,6 @@ export function DataCleaningPanel({ data, columns, onDataChange, className }: Da
       toast({
         title: "Error",
         description: "Please select a column",
-        variant: "destructive"
       });
       return;
     }
@@ -223,7 +217,6 @@ export function DataCleaningPanel({ data, columns, onDataChange, className }: Da
       toast({
         title: "Error",
         description: "Please select a column",
-        variant: "destructive"
       });
       return;
     }
@@ -246,7 +239,6 @@ export function DataCleaningPanel({ data, columns, onDataChange, className }: Da
       toast({
         title: "Error",
         description: "Please select a column",
-        variant: "destructive"
       });
       return;
     }

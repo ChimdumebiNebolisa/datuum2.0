@@ -6,6 +6,7 @@
 
 import { type ClassValue, clsx } from "clsx"
 import { twMerge } from "tailwind-merge"
+import { logger } from './logger'
 
 export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs))
@@ -45,9 +46,9 @@ export function debounce<T extends (...args: any[]) => any>(
   wait: number
 ): (...args: Parameters<T>) => void {
   let timeout: NodeJS.Timeout
-  return (...args: Parameters<T>) => {
+  return (..._args: Parameters<T>) => {
     clearTimeout(timeout)
-    timeout = setTimeout(() => func(...args), wait)
+    timeout = setTimeout(() => func(..._args), wait)
   }
 }
 
@@ -59,9 +60,9 @@ export function throttle<T extends (...args: any[]) => any>(
   limit: number
 ): (...args: Parameters<T>) => void {
   let inThrottle: boolean
-  return (...args: Parameters<T>) => {
+  return (..._args: Parameters<T>) => {
     if (!inThrottle) {
-      func(...args)
+      func(..._args)
       inThrottle = true
       setTimeout(() => inThrottle = false, limit)
     }
@@ -72,7 +73,7 @@ export function throttle<T extends (...args: any[]) => any>(
  * Generate a random ID
  */
 export function generateId(): string {
-  return Math.random().toString(36).substr(2, 9)
+  return Math.random().toString(36).slice(2, 11)
 }
 
 /**
@@ -138,6 +139,7 @@ export function kebabToCamel(str: string): string {
  * Get file extension from filename
  */
 export function getFileExtension(filename: string): string {
+  // Use unsigned right shift to convert -1 to 0xFFFFFFFF (for when '.' is not found)
   return filename.slice((filename.lastIndexOf('.') - 1 >>> 0) + 2)
 }
 
@@ -151,23 +153,27 @@ export function isSupportedFileType(filename: string): boolean {
 }
 
 /**
- * Parse CSV content to array of objects
+ * Parse CSV content to array of objects using papaparse
  */
-export function parseCSV(content: string): Array<Record<string, string>> {
-  const lines = content.split('\n').filter(line => line.trim())
-  if (lines.length === 0) return []
+export async function parseCSV(content: string): Promise<Array<Record<string, any>>> {
+  const Papa = (await import('papaparse')).default;
+  const result = Papa.parse(content, {
+    header: true,
+    skipEmptyLines: true,
+    transform: (value: string) => {
+      // Try to parse as number
+      if (value && !isNaN(Number(value))) {
+        return Number(value);
+      }
+      return value;
+    }
+  });
   
-  const headers = lines[0].split(',').map(header => header.trim())
-  const rows = lines.slice(1).map(line => {
-    const values = line.split(',')
-    const row: Record<string, string> = {}
-    headers.forEach((header, index) => {
-      row[header] = values[index]?.trim() || ''
-    })
-    return row
-  })
+  if (result.errors.length > 0) {
+    logger.warn('CSV parsing warnings', result.errors);
+  }
   
-  return rows
+  return result.data as Array<Record<string, any>>;
 }
 
 /**

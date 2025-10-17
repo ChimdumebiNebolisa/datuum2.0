@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -16,15 +16,15 @@ import {
   Calculator,
   Filter,
   SortAsc,
-  Copy,
   RotateCcw
 } from 'lucide-react';
 import { useToast } from '@/lib/toast';
+import { safeEvaluate, isValidFormula } from '@/lib/formula-parser';
 
 interface DataTransformPanelProps {
   data: any[];
   columns: string[];
-  onDataChange?: (newData: any[]) => void;
+  onDataChange?: (_newData: any[]) => void;
   className?: string;
 }
 
@@ -58,7 +58,6 @@ export function DataTransformPanel({ data, columns, onDataChange, className }: D
       toast({
         title: "Error",
         description: "Please enter a column name",
-        variant: "destructive"
       });
       return;
     }
@@ -67,7 +66,6 @@ export function DataTransformPanel({ data, columns, onDataChange, className }: D
       toast({
         title: "Error",
         description: "Column already exists",
-        variant: "destructive"
       });
       return;
     }
@@ -104,7 +102,6 @@ export function DataTransformPanel({ data, columns, onDataChange, className }: D
       toast({
         title: "Error",
         description: "Please select a column and enter a new name",
-        variant: "destructive"
       });
       return;
     }
@@ -113,7 +110,6 @@ export function DataTransformPanel({ data, columns, onDataChange, className }: D
       toast({
         title: "Error",
         description: "Column name already exists",
-        variant: "destructive"
       });
       return;
     }
@@ -138,7 +134,6 @@ export function DataTransformPanel({ data, columns, onDataChange, className }: D
       toast({
         title: "Error",
         description: "Please select a column to sort",
-        variant: "destructive"
       });
       return;
     }
@@ -162,7 +157,6 @@ export function DataTransformPanel({ data, columns, onDataChange, className }: D
       toast({
         title: "Error",
         description: "Please select a column and enter a filter value",
-        variant: "destructive"
       });
       return;
     }
@@ -188,7 +182,6 @@ export function DataTransformPanel({ data, columns, onDataChange, className }: D
       toast({
         title: "Error",
         description: "Please enter a formula and column name",
-        variant: "destructive"
       });
       return;
     }
@@ -292,9 +285,18 @@ export function DataTransformPanel({ data, columns, onDataChange, className }: D
           break;
 
         case 'calculate':
-          // Simple formula evaluation (basic operations only for safety)
+          // Safe formula evaluation using custom parser
           const { formula, columnName: calcColName } = operation.config;
           try {
+            // Validate formula before processing
+            if (!isValidFormula(formula)) {
+              toast({
+                title: "Error",
+                description: "Invalid or unsafe formula",
+              });
+              return;
+            }
+
             newData = newData.map(row => {
               let evalFormula = formula;
               
@@ -305,16 +307,15 @@ export function DataTransformPanel({ data, columns, onDataChange, className }: D
                 evalFormula = evalFormula.replace(new RegExp(`\\b${col}\\b`, 'g'), numValue.toString());
               });
               
-              // Simple evaluation (only basic math operations)
-              const result = eval(evalFormula.replace(/[^0-9+\-*/.() ]/g, ''));
-              return { ...row, [calcColName]: isNaN(result) ? 0 : result };
+              // Safe evaluation using custom parser
+              const result = safeEvaluate(evalFormula);
+              return { ...row, [calcColName]: result };
             });
             newColumns.push(calcColName);
           } catch (error) {
             toast({
               title: "Error",
-              description: "Invalid formula",
-              variant: "destructive"
+              description: error instanceof Error ? error.message : "Invalid formula",
             });
             return;
           }

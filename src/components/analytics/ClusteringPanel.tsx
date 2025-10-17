@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -10,17 +10,16 @@ import { Slider } from '@/components/ui/slider';
 import { 
   Layers, 
   Download, 
-  Eye,
   BarChart3,
   Info,
   CheckCircle,
-  AlertTriangle,
   Zap,
   Target,
-  Settings
+  AlertTriangle
 } from 'lucide-react';
 import { usePythonExecution } from '@/lib/pyodide-bridge';
-import Plotly from 'plotly.js-dist-min';
+import { logger } from '@/lib/logger';
+import { getNumericColumns, exportAnalyticsData } from '@/lib/analytics-utils';
 
 interface ClusteringPanelProps {
   data: any[];
@@ -61,11 +60,7 @@ export function ClusteringPanel({ data, dataColumns, className }: ClusteringPane
   const { executePython, isInitialized } = usePythonExecution();
 
   // Get numeric columns for analysis
-  const numericColumns = dataColumns.filter(col => {
-    if (!data.length) return false;
-    const sampleValues = data.slice(0, 10).map(row => row[col]);
-    return sampleValues.every(val => typeof val === 'number' && !isNaN(val));
-  });
+  const numericColumns = getNumericColumns(data, dataColumns);
 
   const clusteringMethods: ClusteringMethod[] = [
     {
@@ -92,15 +87,9 @@ export function ClusteringPanel({ data, dataColumns, className }: ClusteringPane
     if (numericColumns.length >= 2 && selectedColumns.length === 0) {
       setSelectedColumns(numericColumns.slice(0, Math.min(3, numericColumns.length)));
     }
-  }, [numericColumns]);
+  }, [numericColumns, selectedColumns.length]);
 
-  useEffect(() => {
-    if (selectedColumns.length >= 2 && isInitialized && showElbow) {
-      calculateElbow();
-    }
-  }, [selectedColumns, isInitialized, showElbow]);
-
-  const calculateElbow = async () => {
+  const calculateElbow = useCallback(async () => {
     if (!isInitialized || selectedColumns.length < 2) return;
 
     setLoading(true);
@@ -139,11 +128,17 @@ result
         setElbowData(result);
       }
     } catch (error) {
-      console.error('Elbow calculation error:', error);
+      logger.error('Elbow calculation error:', error);
     } finally {
       setLoading(false);
     }
-  };
+  }, [isInitialized, selectedColumns, data, executePython]);
+
+  useEffect(() => {
+    if (selectedColumns.length >= 2 && isInitialized && showElbow) {
+      calculateElbow();
+    }
+  }, [selectedColumns, isInitialized, showElbow, calculateElbow]);
 
   const performClustering = async () => {
     if (!isInitialized || selectedColumns.length < 2) return;
@@ -268,7 +263,7 @@ result
       }
     } catch (error) {
       setError('Error performing clustering');
-      console.error('Clustering error:', error);
+      logger.error('Clustering error:', error);
     } finally {
       setLoading(false);
     }
@@ -298,15 +293,16 @@ result
       });
     }
 
-    const layout = {
-      title: `${clusteringResult.method} Clustering Results`,
-      xaxis: { title: selectedColumns[0] },
-      yaxis: { title: selectedColumns[1] },
-      margin: { l: 60, r: 50, t: 50, b: 60 },
-      paper_bgcolor: 'rgba(0,0,0,0)',
-      plot_bgcolor: 'rgba(0,0,0,0)',
-      font: { color: 'hsl(var(--foreground))' }
-    };
+    // Layout configuration for Plotly chart
+    // const layout = {
+    //   title: `${clusteringResult.method} Clustering Results`,
+    //   xaxis: { title: selectedColumns[0] },
+    //   yaxis: { title: selectedColumns[1] },
+    //   margin: { l: 60, r: 50, t: 50, b: 60 },
+    //   paper_bgcolor: 'rgba(0,0,0,0)',
+    //   plot_bgcolor: 'rgba(0,0,0,0)',
+    //   font: { color: 'hsl(var(--foreground))' }
+    // };
 
     return (
       <div className="h-96 w-full" id="clustering-scatter">
@@ -318,25 +314,26 @@ result
   const renderElbowPlot = () => {
     if (!elbowData) return null;
 
-    const plotData = [{
-      x: elbowData.k_values,
-      y: elbowData.inertias,
-      type: 'scatter',
-      mode: 'lines+markers',
-      name: 'Elbow Curve',
-      line: { color: '#3b82f6', width: 2 },
-      marker: { size: 8 }
-    }];
+    // Plot data and layout configuration for Plotly chart
+    // const plotData = [{
+    //   x: elbowData.k_values,
+    //   y: elbowData.inertias,
+    //   type: 'scatter',
+    //   mode: 'lines+markers',
+    //   name: 'Elbow Curve',
+    //   line: { color: '#3b82f6', width: 2 },
+    //   marker: { size: 8 }
+    // }];
 
-    const layout = {
-      title: 'Elbow Method for Optimal K',
-      xaxis: { title: 'Number of Clusters (k)' },
-      yaxis: { title: 'Inertia' },
-      margin: { l: 60, r: 50, t: 50, b: 60 },
-      paper_bgcolor: 'rgba(0,0,0,0)',
-      plot_bgcolor: 'rgba(0,0,0,0)',
-      font: { color: 'hsl(var(--foreground))' }
-    };
+    // const layout = {
+    //   title: 'Elbow Method for Optimal K',
+    //   xaxis: { title: 'Number of Clusters (k)' },
+    //   yaxis: { title: 'Inertia' },
+    //   margin: { l: 60, r: 50, t: 50, b: 60 },
+    //   paper_bgcolor: 'rgba(0,0,0,0)',
+    //   plot_bgcolor: 'rgba(0,0,0,0)',
+    //   font: { color: 'hsl(var(--foreground))' }
+    // };
 
     return (
       <div className="h-64 w-full" id="elbow-plot">
@@ -362,17 +359,7 @@ result
       }))
     };
 
-    const blob = new Blob([JSON.stringify(exportData, null, 2)], { 
-      type: 'application/json' 
-    });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `clustering-${clusteringResult.method.toLowerCase()}-${Date.now()}.json`;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
+    exportAnalyticsData(exportData, `clustering-${clusteringResult.method.toLowerCase()}-${Date.now()}`);
   };
 
   const getQualityColor = (score: number) => {
@@ -440,8 +427,8 @@ result
             </CardDescription>
           </div>
           <div className="flex items-center gap-2">
-            <Button variant="outline" size="sm" onClick={exportClusters} disabled={!clusteringResult}>
-              <Download className="h-4 w-4 mr-2" />
+            <Button variant="outline" size="sm" onClick={exportClusters} disabled={!clusteringResult} aria-label="Export clustering results">
+              <Download className="h-4 w-4 mr-2" aria-hidden="true" />
               Export
             </Button>
           </div>

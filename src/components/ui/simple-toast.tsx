@@ -1,116 +1,131 @@
-"use client"
+'use client';
 
-import React, { createContext, useContext, useState, useCallback } from 'react'
-import { X } from 'lucide-react'
-import { cn } from '@/lib/utils'
+import React, { createContext, useContext, useState, useCallback } from 'react';
+import { Card, CardContent } from '@/components/ui/card';
+import { Button } from '@/components/ui/button';
+import { X, CheckCircle, AlertTriangle, Info, AlertCircle } from 'lucide-react';
+import { cn } from '@/lib/utils';
 
 interface Toast {
-  id: string
-  title?: string
-  description?: string
-  type?: 'success' | 'error' | 'warning' | 'info'
-  variant?: 'default' | 'destructive'
-  duration?: number
+  id: string;
+  title?: string;
+  description?: string;
+  type?: 'success' | 'error' | 'warning' | 'info';
+  duration?: number;
 }
 
 interface ToastContextType {
-  toasts: Toast[]
-  addToast: (toast: Omit<Toast, 'id'>) => void
-  removeToast: (id: string) => void
-  toast: (toast: Omit<Toast, 'id'>) => void
+  toasts: Toast[];
+  toast: (toast: Omit<Toast, 'id'>) => void;
+  dismiss: (id: string) => void;
 }
 
-const ToastContext = createContext<ToastContextType | undefined>(undefined)
+const ToastContext = createContext<ToastContextType | undefined>(undefined);
 
 export function ToastProvider({ children }: { children: React.ReactNode }) {
-  const [toasts, setToasts] = useState<Toast[]>([])
+  const [toasts, setToasts] = useState<Toast[]>([]);
 
-  const addToast = useCallback((toast: Omit<Toast, 'id'>) => {
-    const id = Math.random().toString(36).substr(2, 9)
-    const newToast = { ...toast, id }
+  const toast = useCallback((newToast: Omit<Toast, 'id'>) => {
+    const id = Math.random().toString(36).substr(2, 9);
+    const toastWithId = { ...newToast, id };
     
-    setToasts(prev => [...prev, newToast])
-    
-    // Auto remove after duration
-    const duration = toast.duration || 5000
-    setTimeout(() => {
-      setToasts(prev => prev.filter(t => t.id !== id))
-    }, duration)
-  }, [])
+    setToasts(prev => [...prev, toastWithId]);
 
-  const removeToast = useCallback((id: string) => {
-    setToasts(prev => prev.filter(t => t.id !== id))
-  }, [])
+    // Auto dismiss after duration
+    const duration = newToast.duration || 5000;
+    if (duration > 0) {
+      setTimeout(() => {
+        setToasts(prev => prev.filter(t => t.id !== id));
+      }, duration);
+    }
+  }, []);
+
+  const dismiss = useCallback((id: string) => {
+    setToasts(prev => prev.filter(t => t.id !== id));
+  }, []);
 
   return (
-    <ToastContext.Provider value={{ toasts, addToast, removeToast, toast: addToast }}>
+    <ToastContext.Provider value={{ toasts, toast, dismiss }}>
       {children}
-      <ToastContainer toasts={toasts} onRemove={removeToast} />
+      <ToastContainer toasts={toasts} dismiss={dismiss} />
     </ToastContext.Provider>
-  )
+  );
 }
 
 export function useToast() {
-  const context = useContext(ToastContext)
-  if (!context) {
-    throw new Error('useToast must be used within a ToastProvider')
+  const context = useContext(ToastContext);
+  if (context === undefined) {
+    throw new Error('useToast must be used within a ToastProvider');
   }
-  return context
+  return context;
 }
 
-function ToastContainer({ toasts, onRemove }: { toasts: Toast[], onRemove: (id: string) => void }) {
+function ToastContainer({ toasts, dismiss }: { toasts: Toast[]; dismiss: (id: string) => void }) {
+  if (toasts.length === 0) return null;
+
   return (
-    <div className="fixed top-4 right-4 z-50 flex flex-col gap-2">
+    <div className="fixed top-4 right-4 z-50 space-y-2 max-w-sm">
       {toasts.map((toast) => (
-        <ToastItem key={toast.id} toast={toast} onRemove={onRemove} />
+        <ToastItem key={toast.id} toast={toast} onDismiss={() => dismiss(toast.id)} />
       ))}
     </div>
-  )
+  );
 }
 
-function ToastItem({ toast, onRemove }: { toast: Toast, onRemove: (id: string) => void }) {
-  const getToastStyles = (type: Toast['type'], variant: Toast['variant']) => {
-    // Handle variant first (destructive overrides type)
-    if (variant === 'destructive') {
-      return 'bg-red-50 border-red-200 text-red-800'
-    }
-    
-    // Then handle type
-    switch (type) {
+function ToastItem({ toast, onDismiss }: { toast: Toast; onDismiss: () => void }) {
+  const getIcon = () => {
+    switch (toast.type) {
       case 'success':
-        return 'bg-green-50 border-green-200 text-green-800'
+        return <CheckCircle className="h-5 w-5 text-green-600" />;
       case 'error':
-        return 'bg-red-50 border-red-200 text-red-800'
+        return <AlertTriangle className="h-5 w-5 text-red-600" />;
       case 'warning':
-        return 'bg-yellow-50 border-yellow-200 text-yellow-800'
+        return <AlertCircle className="h-5 w-5 text-yellow-600" />;
       case 'info':
-        return 'bg-blue-50 border-blue-200 text-blue-800'
       default:
-        return 'bg-white border-gray-200 text-gray-800'
+        return <Info className="h-5 w-5 text-blue-600" />;
     }
-  }
+  };
+
+  const getBorderColor = () => {
+    switch (toast.type) {
+      case 'success':
+        return 'border-green-200 bg-green-50';
+      case 'error':
+        return 'border-red-200 bg-red-50';
+      case 'warning':
+        return 'border-yellow-200 bg-yellow-50';
+      case 'info':
+      default:
+        return 'border-blue-200 bg-blue-50';
+    }
+  };
 
   return (
-    <div
-      className={cn(
-        'flex items-start gap-3 p-4 rounded-lg border shadow-lg max-w-sm',
-        getToastStyles(toast.type, toast.variant)
-      )}
-    >
-      <div className="flex-1 min-w-0">
-        {toast.title && (
-          <div className="font-medium text-sm">{toast.title}</div>
-        )}
-        {toast.description && (
-          <div className="text-sm opacity-90 mt-1">{toast.description}</div>
-        )}
-      </div>
-      <button
-        onClick={() => onRemove(toast.id)}
-        className="flex-shrink-0 p-1 rounded-md hover:bg-black/5 transition-colors"
-      >
-        <X className="h-4 w-4" />
-      </button>
-    </div>
-  )
+    <Card className={cn('border shadow-lg animate-in slide-in-from-right-full', getBorderColor())}>
+      <CardContent className="p-4">
+        <div className="flex items-start gap-3">
+          <div className="flex-shrink-0">
+            {getIcon()}
+          </div>
+          <div className="flex-1 min-w-0">
+            {toast.title && (
+              <p className="text-sm font-medium text-gray-900">{toast.title}</p>
+            )}
+            {toast.description && (
+              <p className="text-sm text-gray-700 mt-1">{toast.description}</p>
+            )}
+          </div>
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={onDismiss}
+            className="h-6 w-6 p-0 flex-shrink-0"
+          >
+            <X className="h-4 w-4" />
+          </Button>
+        </div>
+      </CardContent>
+    </Card>
+  );
 }

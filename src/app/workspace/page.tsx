@@ -1,18 +1,19 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
+import Link from 'next/link';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import { Badge } from '@/components/ui/badge';
-import { Upload, FileText, BarChart3, Settings, Download, Save, FolderOpen, Sparkles, Calculator, TrendingUp, AlertTriangle, Layers, Calendar, Target } from 'lucide-react';
+import { FileText, BarChart3, Settings, Download, Save, FolderOpen, Sparkles, Calculator, TrendingUp, AlertTriangle, Layers, Calendar, Target } from 'lucide-react';
 import { usePythonExecution } from '@/lib/pyodide-bridge';
 import { useToast } from '@/lib/toast';
+import { DataRow, DataInfo, ChartRecommendation, ChartConfig } from '@/types/analytics';
+import { logger } from '@/lib/logger';
 import { Skeleton } from '@/components/ui/skeleton';
-import { Progress } from '@/components/ui/progress';
 import { ErrorBoundary } from '@/components/ui/error-boundary';
-import { LoadingSpinner } from '@/components/ui/loading-spinner';
 import { FileUploader } from '@/components/FileUploader';
 import { MobileNav } from '@/components/MobileNav';
 import dynamic from 'next/dynamic';
@@ -47,6 +48,7 @@ const DataTable = dynamic(() => import('@/components/DataTable').then(mod => ({ 
   loading: () => <div className="h-64 flex items-center justify-center">Loading data table...</div>
 });
 
+
 const DataTransformPanel = dynamic(() => import('@/components/data/DataTransformPanel').then(mod => ({ default: mod.DataTransformPanel })), {
   ssr: false,
   loading: () => <div className="h-64 flex items-center justify-center">Loading data transform...</div>
@@ -72,18 +74,27 @@ const ClusteringPanel = dynamic(() => import('@/components/analytics/ClusteringP
   loading: () => <div className="h-64 flex items-center justify-center">Loading clustering...</div>
 });
 
+/**
+ * Main workspace page component for Datuum 2.0
+ * 
+ * This component provides the main interface for data analysis, including:
+ * - File upload functionality
+ * - Data preview and editing
+ * - Analytics panels (statistics, clustering, correlation, etc.)
+ * - Chart visualization and recommendations
+ * 
+ * @returns JSX element containing the complete workspace interface
+ */
 export default function WorkspacePage() {
   const [isPythonReady, setIsPythonReady] = useState(false);
-  const [currentData, setCurrentData] = useState<any[]>([]);
-  const [dataInfo, setDataInfo] = useState<any>(null);
+  const [currentData, setCurrentData] = useState<DataRow[]>([]);
+  const [dataInfo, setDataInfo] = useState<DataInfo | null>(null);
   const [activeTab, setActiveTab] = useState('upload');
   const [selectedChart, setSelectedChart] = useState<string>('bar');
-  const [chartConfig, setChartConfig] = useState<any>({});
-  const [chartRecommendations, setChartRecommendations] = useState<any[]>([]);
-  const [uploadProgress, setUploadProgress] = useState(0);
-  const [isUploading, setIsUploading] = useState(false);
+  const [chartConfig, setChartConfig] = useState<ChartConfig | null>(null);
+  const [chartRecommendations, setChartRecommendations] = useState<ChartRecommendation[]>([]);
   
-  const { executePython, isInitialized, loading } = usePythonExecution();
+  const { executePython, isInitialized } = usePythonExecution();
   const { toast } = useToast();
 
   useEffect(() => {
@@ -93,8 +104,6 @@ export default function WorkspacePage() {
   }, [isInitialized]);
 
   const handleFileUpload = async (file: File) => {
-    setIsUploading(true);
-    setUploadProgress(0);
     
     try {
       toast({
@@ -102,44 +111,32 @@ export default function WorkspacePage() {
         description: `Processing ${file.name}`,
       });
 
-      // Simulate progress
-      const progressInterval = setInterval(() => {
-        setUploadProgress(prev => {
-          if (prev >= 90) {
-            clearInterval(progressInterval);
-            return prev;
-          }
-          return prev + 10;
-        });
-      }, 100);
-
       const text = await file.text();
-      setUploadProgress(50);
       
       let data;
       
       if (file.type === 'text/csv' || file.name.endsWith('.csv')) {
-        // Parse CSV
-        const lines = text.split('\n').filter(line => line.trim());
-        const headers = lines[0].split(',').map(h => h.trim().replace(/"/g, ''));
-        data = [];
-        
-        for (let i = 1; i < lines.length; i++) {
-          const values = lines[i].split(',').map(v => v.trim().replace(/"/g, ''));
-          const row: any = {};
-          headers.forEach((header, index) => {
-            let value: any = values[index] || '';
+        // Parse CSV using papaparse
+        const Papa = (await import('papaparse')).default;
+        const result = Papa.parse(text, {
+          header: true,
+          skipEmptyLines: true,
+          transform: (value: string) => {
+            // Try to parse as number
             if (value && !isNaN(Number(value))) {
-              value = Number(value);
+              return Number(value);
             }
-            row[header] = value;
-          });
-          data.push(row);
+            return value;
+          }
+        });
+        
+        if (result.errors.length > 0) {
+          logger.warn('CSV parsing warnings', result.errors);
         }
-        setUploadProgress(80);
+        
+        data = result.data;
       } else if (file.type === 'application/json' || file.name.endsWith('.json')) {
         data = JSON.parse(text);
-        setUploadProgress(80);
       } else {
         throw new Error('Unsupported file type');
       }
@@ -152,8 +149,6 @@ export default function WorkspacePage() {
         fileName: file.name
       });
       
-      setUploadProgress(100);
-      
       toast({
         title: "File uploaded successfully!",
         description: `${data.length} rows loaded from ${file.name}`,
@@ -161,19 +156,15 @@ export default function WorkspacePage() {
       
       setActiveTab('data');
     } catch (error) {
-      console.error('Error uploading file:', error);
+      logger.error('File upload error:', error as Error, 'file upload');
       toast({
         title: "Upload failed",
         description: error instanceof Error ? error.message : "Failed to process file",
-        variant: "destructive",
       });
-    } finally {
-      setIsUploading(false);
-      setUploadProgress(0);
     }
   };
 
-  const FileUploadSection = () => (
+  const FileUploadSection = useMemo(() => (
     <div className="space-y-6">
       <FileUploader
         onFileUpload={handleFileUpload}
@@ -194,10 +185,11 @@ export default function WorkspacePage() {
         </CardHeader>
         <CardContent>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <Button 
-              variant="outline" 
-              className="h-auto p-4 flex flex-col items-start"
-              onClick={() => {
+                <Button 
+                  variant="outline" 
+                  className="h-auto p-4 flex flex-col items-start"
+                  aria-label="Load sample sales data with monthly sales and profit information"
+                  onClick={() => {
                 // Load sample sales data
                 const sampleData = [
                   { month: 'Jan', sales: 1200, profit: 200 },
@@ -211,7 +203,8 @@ export default function WorkspacePage() {
                 setDataInfo({
                   rows: sampleData.length,
                   columns: Object.keys(sampleData[0]),
-                  fileName: 'Sample Sales Data'
+                  fileName: 'Sample Sales Data',
+                  fileSize: 0
                 });
                 setActiveTab('data');
                 toast({
@@ -227,6 +220,7 @@ export default function WorkspacePage() {
             <Button 
               variant="outline" 
               className="h-auto p-4 flex flex-col items-start"
+              aria-label="Load sample customer data with demographics and spending information"
               onClick={() => {
                 // Load sample customer data
                 const sampleData = [
@@ -241,7 +235,8 @@ export default function WorkspacePage() {
                 setDataInfo({
                   rows: sampleData.length,
                   columns: Object.keys(sampleData[0]),
-                  fileName: 'Sample Customer Data'
+                  fileName: 'Sample Customer Data',
+                  fileSize: 0
                 });
                 setActiveTab('data');
                 toast({
@@ -257,9 +252,9 @@ export default function WorkspacePage() {
         </CardContent>
       </Card>
     </div>
-  );
+  ), [handleFileUpload]);
 
-  const DataPreview = () => (
+  const DataPreview = useMemo(() => (
     <div className="space-y-6">
       {currentData.length > 0 ? (
         <>
@@ -371,14 +366,14 @@ export default function WorkspacePage() {
         </Card>
       )}
     </div>
-  );
+  ), [currentData, dataInfo]);
 
-  const handleChartSelect = (chartType: string, config: any) => {
+  const handleChartSelect = useCallback((chartType: string, config: ChartConfig) => {
     setSelectedChart(chartType);
     setChartConfig(config);
-  };
+  }, []);
 
-  const getChartRecommendations = async () => {
+  const getChartRecommendations = useCallback(async () => {
     if (!isInitialized || !currentData.length) return;
     
     try {
@@ -400,17 +395,17 @@ result
         setChartRecommendations((result as any).recommendations || []);
       }
     } catch (error) {
-      console.error('Error getting chart recommendations:', error);
+      logger.error('Chart recommendations error:', error as Error, 'chart recommendations');
     }
-  };
+  }, [isInitialized, currentData, executePython]);
 
   useEffect(() => {
     if (currentData.length > 0) {
       getChartRecommendations();
     }
-  }, [currentData, isInitialized]);
+  }, [currentData, isInitialized, getChartRecommendations]);
 
-  const AnalyticsPanel = () => (
+  const AnalyticsPanel = useMemo(() => (
     <div className="space-y-6">
       {currentData.length > 0 && (
         <>
@@ -423,7 +418,7 @@ result
           <ChartRenderer
             data={currentData}
             chartType={selectedChart}
-            config={chartConfig}
+            config={chartConfig || undefined}
           />
 
           {/* Statistics Analysis */}
@@ -539,7 +534,7 @@ result
         </CardContent>
       </Card>
     </div>
-  );
+  ), [currentData, dataInfo, chartRecommendations, selectedChart, chartConfig, handleChartSelect]);
 
   if (!isPythonReady) {
     return (
@@ -597,16 +592,16 @@ result
           <div className="container mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
             <div className="flex h-14 items-center justify-between">
               <div className="flex items-center">
-                <a className="flex items-center space-x-2" href="/">
+                <Link className="flex items-center space-x-2" href="/">
                   <span className="font-bold text-lg">Datuum 2.0</span>
-                </a>
+                </Link>
               </div>
               
               {/* Desktop Navigation */}
               <nav className="hidden md:flex items-center space-x-2">
                 <Dialog>
                   <DialogTrigger asChild>
-                    <Button variant="outline" size="sm">
+                    <Button variant="outline" size="sm" aria-label="Open saved project">
                       <FolderOpen className="h-4 w-4 mr-2" />
                       Open
                     </Button>
@@ -624,17 +619,17 @@ result
                   </DialogContent>
                 </Dialog>
                 
-                <Button variant="outline" size="sm">
+                <Button variant="outline" size="sm" aria-label="Save current project">
                   <Save className="h-4 w-4 mr-2" />
                   Save
                 </Button>
                 
-                <Button variant="outline" size="sm">
+                <Button variant="outline" size="sm" aria-label="Export data and charts">
                   <Download className="h-4 w-4 mr-2" />
                   Export
                 </Button>
                 
-                <Button variant="outline" size="sm">
+                <Button variant="outline" size="sm" aria-label="Open settings">
                   <Settings className="h-4 w-4" />
                 </Button>
               </nav>
@@ -650,33 +645,33 @@ result
         {/* Main Content */}
         <div className="container mx-auto max-w-7xl px-4 sm:px-6 lg:px-8 py-4 md:py-6">
           <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-4 md:space-y-6">
-            <TabsList className="grid w-full grid-cols-3 h-auto min-h-[44px]">
-              <TabsTrigger value="upload" className="text-xs md:text-sm py-2 px-3">
+            <TabsList className="grid w-full grid-cols-3 h-auto min-h-[44px]" role="tablist" aria-label="Workspace navigation">
+              <TabsTrigger value="upload" className="text-xs md:text-sm py-2 px-3" role="tab" aria-selected={activeTab === 'upload'}>
                 Upload
               </TabsTrigger>
-              <TabsTrigger value="data" className="text-xs md:text-sm py-2 px-3">
+              <TabsTrigger value="data" className="text-xs md:text-sm py-2 px-3" role="tab" aria-selected={activeTab === 'data'}>
                 Data
               </TabsTrigger>
-              <TabsTrigger value="analytics" className="text-xs md:text-sm py-2 px-3">
+              <TabsTrigger value="analytics" className="text-xs md:text-sm py-2 px-3" role="tab" aria-selected={activeTab === 'analytics'}>
                 Analytics
               </TabsTrigger>
             </TabsList>
             
             <TabsContent value="upload">
               <ErrorBoundary>
-                <FileUploadSection />
+                {FileUploadSection}
               </ErrorBoundary>
             </TabsContent>
             
             <TabsContent value="data">
               <ErrorBoundary>
-                <DataPreview />
+                {DataPreview}
               </ErrorBoundary>
             </TabsContent>
             
             <TabsContent value="analytics">
               <ErrorBoundary>
-                <AnalyticsPanel />
+                {AnalyticsPanel}
               </ErrorBoundary>
             </TabsContent>
           </Tabs>

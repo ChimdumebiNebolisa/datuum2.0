@@ -1,14 +1,17 @@
 // React hooks and utilities for Python execution via Pyodide
 import { useState, useEffect, useCallback, useRef } from 'react';
+import { logger } from './logger';
+import { DataRow, PythonExecutionResult } from '@/types/analytics';
 
-interface PythonExecutionResult<T = any> {
-  data?: T;
-  error?: string;
-  loading: boolean;
+
+interface PythonWorkerMessage {
+  type: string;
+  payload: unknown;
+  id?: string;
 }
 
 interface PythonWorker {
-  postMessage: (message: any) => void;
+  postMessage: (message: PythonWorkerMessage) => void;
   addEventListener: (event: string, handler: (event: MessageEvent) => void) => void;
   terminate: () => void;
 }
@@ -51,7 +54,7 @@ export function usePythonExecution() {
         setWorker(workerInstance);
         setIsInitialized(true);
       } catch (error) {
-        console.error('Failed to initialize Python worker:', error);
+        logger.error('Python worker initialization error:', error as Error, 'Python worker initialization');
       }
     };
 
@@ -68,7 +71,7 @@ export function usePythonExecution() {
   const sendMessage = useCallback(async <T>(
     workerInstance: PythonWorker,
     type: string,
-    payload: any
+    payload: unknown
   ): Promise<T> => {
     return new Promise((resolve, reject) => {
       const id = Math.random().toString(36).substr(2, 9);
@@ -135,7 +138,7 @@ export function usePythonExecution() {
 export function useDataProcessing() {
   const { executePython, isInitialized, loading } = usePythonExecution();
 
-  const processData = useCallback(async (data: any[], operations: string[]) => {
+  const processData = useCallback(async (data: DataRow[], operations: string[]) => {
     if (!isInitialized) return { error: 'Python not initialized' };
 
     try {
@@ -161,7 +164,7 @@ result
     }
   }, [executePython, isInitialized]);
 
-  const calculateStatistics = useCallback(async (data: any[], column?: string) => {
+  const calculateStatistics = useCallback(async (data: DataRow[], column?: string) => {
     if (!isInitialized) return { error: 'Python not initialized' };
 
     try {
@@ -208,7 +211,7 @@ stats
 export function useChartRecommendations() {
   const { executePython, isInitialized } = usePythonExecution();
 
-  const recommendChart = useCallback(async (data: any[], columns: string[]) => {
+  const recommendChart = useCallback(async (data: DataRow[], columns: string[]) => {
     if (!isInitialized) return { error: 'Python not initialized' };
 
     try {

@@ -1,70 +1,69 @@
-"use client"
+'use client';
 
-import { Menu, FolderOpen, Save, Download, Settings } from "lucide-react"
-import { Button } from "@/components/ui/button"
-import {
-  Sheet,
-  SheetContent,
-  SheetHeader,
-  SheetTitle,
-  SheetTrigger,
-} from "@/components/ui/sheet"
+import { useState } from 'react';
+import { Button } from '@/components/ui/button';
+import { Dialog, DialogContent, DialogTrigger } from '@/components/ui/dialog';
+import { 
+  Menu, 
+  X, 
+  Settings, 
+  Download, 
+  Save, 
+  FolderOpen 
+} from 'lucide-react';
+import { logger } from '@/lib/logger';
 
-interface MobileNavProps {
-  onOpen?: () => void
-  onSave?: () => void
-  onExport?: () => void
-  onSettings?: () => void
-}
+export function MobileNav() {
+  const [isOpen, setIsOpen] = useState(false);
 
-export function MobileNav({ onOpen, onSave, onExport, onSettings }: MobileNavProps) {
+  const navItems = [
+    { icon: FolderOpen, label: 'Open', action: () => logger.info('Open action triggered') },
+    { icon: Save, label: 'Save', action: () => logger.info('Save action triggered') },
+    { icon: Download, label: 'Export', action: () => logger.info('Export action triggered') },
+    { icon: Settings, label: 'Settings', action: () => logger.info('Settings action triggered') },
+  ];
+
   return (
-    <Sheet>
-      <SheetTrigger asChild>
-        <Button variant="outline" size="icon" className="md:hidden">
-          <Menu className="h-4 w-4" />
-          <span className="sr-only">Open menu</span>
+    <Dialog open={isOpen} onOpenChange={setIsOpen}>
+      <DialogTrigger asChild>
+        <Button variant="ghost" size="sm" className="md:hidden" aria-label="Open navigation menu">
+          <Menu className="h-5 w-5" />
         </Button>
-      </SheetTrigger>
-      <SheetContent side="right" className="w-[300px] sm:w-[400px]">
-        <SheetHeader>
-          <SheetTitle>Menu</SheetTitle>
-        </SheetHeader>
-        <div className="flex flex-col space-y-4 mt-6">
-          <Button
-            variant="outline"
-            className="w-full justify-start"
-            onClick={onOpen}
-          >
-            <FolderOpen className="mr-2 h-4 w-4" />
-            Open
-          </Button>
-          <Button
-            variant="outline"
-            className="w-full justify-start"
-            onClick={onSave}
-          >
-            <Save className="mr-2 h-4 w-4" />
-            Save
-          </Button>
-          <Button
-            variant="outline"
-            className="w-full justify-start"
-            onClick={onExport}
-          >
-            <Download className="mr-2 h-4 w-4" />
-            Export
-          </Button>
-          <Button
-            variant="outline"
-            className="w-full justify-start"
-            onClick={onSettings}
-          >
-            <Settings className="mr-2 h-4 w-4" />
-            Settings
-          </Button>
+      </DialogTrigger>
+      <DialogContent className="sm:max-w-md">
+        <div className="space-y-4">
+          <div className="flex items-center justify-between">
+            <h2 className="text-lg font-semibold">Menu</h2>
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => setIsOpen(false)}
+              className="h-8 w-8 p-0"
+              aria-label="Close navigation menu"
+            >
+              <X className="h-4 w-4" />
+            </Button>
+          </div>
+          
+          <div className="space-y-2">
+            {navItems.map((item, index) => (
+              <Button
+                key={index}
+                variant="ghost"
+                className="w-full justify-start"
+                onClick={() => {
+                  item.action();
+                  setIsOpen(false);
+                }}
+                aria-label={`${item.label} action`}
+              >
+                <item.icon className="h-4 w-4 mr-2" aria-hidden="true" />
+                {item.label}
+              </Button>
+            ))}
+          </div>
         </div>
-      </SheetContent>
-    </Sheet>
-  )
+      </DialogContent>
+    </Dialog>
+  );
 }

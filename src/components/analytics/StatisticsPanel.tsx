@@ -1,27 +1,27 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { 
   BarChart3, 
   TrendingUp, 
   Activity, 
-  Download, 
   Calculator,
-  Info,
   CheckCircle,
   AlertTriangle,
   Minus
 } from 'lucide-react';
-import { usePythonExecution } from '@/lib/pyodide-bridge';
-import Plotly from 'plotly.js-dist-min';
+import { exportAnalyticsData } from '@/lib/analytics-utils';
+import { DataRow, StatisticsResult, DistributionResult, PythonExecutionResult } from '@/types/analytics';
+import { BaseAnalyticsPanel } from './shared/BaseAnalyticsPanel';
+import { useAnalyticsPanel } from './shared/useAnalyticsPanel';
+import { ColumnSelector } from './shared/ColumnSelector';
+import { MethodInfo } from './shared/MethodInfo';
 
 interface StatisticsPanelProps {
-  data: any[];
+  data: DataRow[];
   dataColumns: string[];
   className?: string;
 }
@@ -35,29 +35,51 @@ interface StatCard {
   color?: 'default' | 'success' | 'warning' | 'destructive';
 }
 
-interface DistributionData {
-  bins: number[];
-  frequencies: number[];
-  type: 'numeric' | 'categorical';
+interface StatisticsExecutionResult extends PythonExecutionResult {
+  statistics?: Record<string, StatisticsResult>;
+}
+
+interface DistributionExecutionResult extends PythonExecutionResult {
+  bin_edges?: number[];
+  frequencies?: number[];
+  type?: 'numeric' | 'categorical';
   distribution?: Record<string, number>;
 }
 
+// interface DistributionData {
+//   bins: number[];
+//   frequencies: number[];
+//   type: 'numeric' | 'categorical';
+//   distribution?: Record<string, number>;
+// }
+
+/**
+ * StatisticsPanel component for displaying descriptive statistics and data distribution
+ * 
+ * @param data - Array of data objects to analyze
+ * @param dataColumns - Array of column names in the data
+ * @param className - Optional CSS class name for styling
+ * @returns JSX element containing statistics analysis interface
+ */
 export function StatisticsPanel({ data, dataColumns, className }: StatisticsPanelProps) {
   const [selectedColumns, setSelectedColumns] = useState<string[]>([]);
-  const [statistics, setStatistics] = useState<any>(null);
-  const [distribution, setDistribution] = useState<DistributionData | null>(null);
+  const [statistics, setStatistics] = useState<Record<string, StatisticsResult> | null>(null);
+  const [distribution, setDistribution] = useState<DistributionResult | null>(null);
   const [selectedColumn, setSelectedColumn] = useState<string>('');
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState('overview');
 
-  const { executePython, isInitialized } = usePythonExecution();
-
-  // Get numeric columns for analysis
-  const numericColumns = dataColumns.filter(col => {
-    if (!data.length) return false;
-    const sampleValues = data.slice(0, 10).map(row => row[col]);
-    return sampleValues.every(val => typeof val === 'number' && !isNaN(val));
+  const {
+    loading,
+    error,
+    isInitialized,
+    hasValidData,
+    numericColumns,
+    executeWithErrorHandling
+  } = useAnalyticsPanel({
+    data,
+    dataColumns,
+    autoExecute: false,
+    minColumnsRequired: 1
   });
 
   useEffect(() => {
@@ -65,22 +87,12 @@ export function StatisticsPanel({ data, dataColumns, className }: StatisticsPane
       setSelectedColumn(numericColumns[0]);
       setSelectedColumns([numericColumns[0]]);
     }
-  }, [numericColumns]);
+  }, [numericColumns, selectedColumn]);
 
-  useEffect(() => {
-    if (selectedColumns.length > 0 && isInitialized) {
-      calculateStatistics();
-    }
-  }, [selectedColumns, isInitialized]);
-
-  const calculateStatistics = async () => {
+  const calculateStatistics = useCallback(async () => {
     if (!isInitialized || selectedColumns.length === 0) return;
 
-    setLoading(true);
-    setError(null);
-
-    try {
-      const code = `
+    const code = `
 import sys
 sys.path.append('/python')
 import pandas as pd
@@ -92,29 +104,28 @@ df = pd.DataFrame(${JSON.stringify(data)})
 statistics_analyzer.set_data(df)
 result = statistics_analyzer.descriptive_statistics(${JSON.stringify(selectedColumns)})
 result
-      `;
+    `;
 
-      const result = await executePython(code);
-      
-      if ((result as any).success) {
-        setStatistics((result as any).statistics);
-      } else {
-        setError((result as any).error || 'Failed to calculate statistics');
-      }
-    } catch (error) {
-      setError('Error calculating statistics');
-      console.error('Statistics calculation error:', error);
-    } finally {
-      setLoading(false);
+    await executeWithErrorHandling(
+      code,
+      (result) => {
+        const typedResult = result as StatisticsExecutionResult;
+        setStatistics(typedResult.statistics || {});
+      },
+      'Failed to calculate statistics'
+    );
+  }, [isInitialized, selectedColumns, data, executeWithErrorHandling]);
+
+  useEffect(() => {
+    if (selectedColumns.length > 0 && isInitialized) {
+      calculateStatistics();
     }
-  };
+  }, [selectedColumns, isInitialized, calculateStatistics]);
 
-  const analyzeDistribution = async (column: string) => {
+  const analyzeDistribution = useCallback(async (column: string) => {
     if (!isInitialized) return;
 
-    setLoading(true);
-    try {
-      const code = `
+    const code = `
 import sys
 sys.path.append('/python')
 import pandas as pd
@@ -126,38 +137,36 @@ df = pd.DataFrame(${JSON.stringify(data)})
 statistics_analyzer.set_data(df)
 result = statistics_analyzer.distribution_analysis('${column}')
 result
-      `;
+    `;
 
-      const result = await executePython(code);
-      
-      if ((result as any).success) {
+    await executeWithErrorHandling(
+      code,
+      (result) => {
+        const typedResult = result as DistributionExecutionResult;
         setDistribution({
-          bins: (result as any).bin_edges || [],
-          frequencies: (result as any).frequencies || [],
-          type: (result as any).type,
-          distribution: (result as any).distribution
+          bins: typedResult.bin_edges || [],
+          frequencies: typedResult.frequencies || [],
+          type: typedResult.type || 'numeric',
+          distribution: typedResult.distribution
         });
-      }
-    } catch (error) {
-      console.error('Distribution analysis error:', error);
-    } finally {
-      setLoading(false);
-    }
-  };
+      },
+      'Failed to analyze distribution'
+    );
+  }, [isInitialized, data, executeWithErrorHandling]);
 
   useEffect(() => {
     if (selectedColumn) {
       analyzeDistribution(selectedColumn);
     }
-  }, [selectedColumn, isInitialized]);
+  }, [selectedColumn, analyzeDistribution]);
 
-  const renderStatCards = (): StatCard[] => {
+  const getStatCards = (): StatCard[] => {
     if (!statistics || selectedColumns.length === 0) return [];
 
     const cards: StatCard[] = [];
     
     selectedColumns.forEach(column => {
-      const stats = statistics[column];
+      const stats = statistics?.[column];
       if (!stats) return;
 
       cards.push(
@@ -191,11 +200,11 @@ result
     return cards;
   };
 
-  const renderDetailedStats = () => {
+  const getDetailedStats = () => {
     if (!statistics || selectedColumns.length === 0) return null;
 
     return selectedColumns.map(column => {
-      const stats = statistics[column];
+      const stats = statistics?.[column];
       if (!stats) return null;
 
       return (
@@ -224,8 +233,8 @@ result
               <div className="space-y-2">
                 <div className="text-sm font-medium text-muted-foreground">Skewness</div>
                 <div className="text-lg font-semibold flex items-center gap-2">
-                  {stats.skewness.toFixed(3)}
-                  {Math.abs(stats.skewness) > 1 ? (
+                  {stats.skewness?.toFixed(3) || 'N/A'}
+                  {stats.skewness && Math.abs(stats.skewness) > 1 ? (
                     <AlertTriangle className="h-4 w-4 text-warning" />
                   ) : (
                     <CheckCircle className="h-4 w-4 text-success" />
@@ -234,7 +243,7 @@ result
               </div>
               <div className="space-y-2">
                 <div className="text-sm font-medium text-muted-foreground">Kurtosis</div>
-                <div className="text-lg font-semibold">{stats.kurtosis.toFixed(3)}</div>
+                <div className="text-lg font-semibold">{stats.kurtosis?.toFixed(3) || 'N/A'}</div>
               </div>
             </div>
             
@@ -260,29 +269,30 @@ result
     });
   };
 
-  const renderDistributionChart = () => {
+  const getDistributionChart = () => {
     if (!distribution || distribution.type !== 'numeric') return null;
 
-    const plotData = [{
-      x: distribution.bins.slice(1),
-      y: distribution.frequencies,
-      type: 'bar',
-      name: selectedColumn,
-      marker: {
-        color: '#3b82f6',
-        opacity: 0.7
-      }
-    }];
+    // Plot data and layout configuration for Plotly histogram
+    // const plotData = [{
+    //   x: distribution.bins.slice(1),
+    //   y: distribution.frequencies,
+    //   type: 'bar',
+    //   name: selectedColumn,
+    //   marker: {
+    //     color: '#3b82f6',
+    //     opacity: 0.7
+    //   }
+    // }];
 
-    const layout = {
-      title: `Distribution of ${selectedColumn}`,
-      xaxis: { title: selectedColumn },
-      yaxis: { title: 'Frequency' },
-      margin: { l: 50, r: 50, t: 50, b: 50 },
-      paper_bgcolor: 'rgba(0,0,0,0)',
-      plot_bgcolor: 'rgba(0,0,0,0)',
-      font: { color: 'hsl(var(--foreground))' }
-    };
+    // const layout = {
+    //   title: `Distribution of ${selectedColumn}`,
+    //   xaxis: { title: selectedColumn },
+    //   yaxis: { title: 'Frequency' },
+    //   margin: { l: 50, r: 50, t: 50, b: 50 },
+    //   paper_bgcolor: 'rgba(0,0,0,0)',
+    //   plot_bgcolor: 'rgba(0,0,0,0)',
+    //   font: { color: 'hsl(var(--foreground))' }
+    // };
 
     return (
       <div className="h-64 w-full" id="distribution-chart">
@@ -300,108 +310,42 @@ result
       statistics: statistics
     };
 
-    const blob = new Blob([JSON.stringify(exportData, null, 2)], { 
-      type: 'application/json' 
-    });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `statistics-${Date.now()}.json`;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
+    exportAnalyticsData(exportData, `statistics-${Date.now()}`);
   };
 
-  if (!isInitialized) {
-    return (
-      <Card className={className}>
-        <CardContent className="flex items-center justify-center h-32">
-          <div className="text-center">
-            <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-primary mx-auto mb-2"></div>
-            <p className="text-sm text-muted-foreground">Initializing Python engine...</p>
-          </div>
-        </CardContent>
-      </Card>
-    );
-  }
-
-  if (numericColumns.length === 0) {
-    return (
-      <Card className={className}>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <Calculator className="h-5 w-5" />
-            Statistics Analysis
-          </CardTitle>
-          <CardDescription>
-            Calculate descriptive statistics for your data
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          <div className="text-center py-8">
-            <Info className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
-            <p className="text-muted-foreground">
-              No numeric columns found in your data. Statistics analysis requires numeric data.
-            </p>
-          </div>
-        </CardContent>
-      </Card>
-    );
-  }
-
   return (
-    <Card className={className}>
-      <CardHeader>
-        <div className="flex items-center justify-between">
-          <div>
-            <CardTitle className="flex items-center gap-2">
-              <Calculator className="h-5 w-5" />
-              Statistics Analysis
-            </CardTitle>
-            <CardDescription>
-              Calculate descriptive statistics for your data
-            </CardDescription>
-          </div>
-          <div className="flex items-center gap-2">
-            <Select value={selectedColumn} onValueChange={(value) => {
-              setSelectedColumn(value);
-              setSelectedColumns([value]);
-            }}>
-              <SelectTrigger className="w-48">
-                <SelectValue placeholder="Select column" />
-              </SelectTrigger>
-              <SelectContent>
-                {numericColumns.map(col => (
-                  <SelectItem key={col} value={col}>{col}</SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-            <Button variant="outline" size="sm" onClick={exportStatistics} disabled={!statistics}>
-              <Download className="h-4 w-4 mr-2" />
-              Export
-            </Button>
-          </div>
-        </div>
-      </CardHeader>
-      <CardContent>
-        {error && (
-          <div className="mb-4 p-3 bg-destructive/10 border border-destructive/20 rounded-md">
-            <div className="flex items-center gap-2">
-              <AlertTriangle className="h-4 w-4 text-destructive" />
-              <span className="text-sm text-destructive">{error}</span>
-            </div>
-          </div>
-        )}
+    <BaseAnalyticsPanel
+      title="Statistics Analysis"
+      description="Calculate descriptive statistics for your data"
+      icon={<Calculator className="h-5 w-5" />}
+      data={data}
+      dataColumns={dataColumns}
+      className={className}
+      isInitialized={isInitialized}
+      loading={loading}
+      error={error}
+      hasValidData={hasValidData}
+      noDataMessage="No numeric columns found in your data. Statistics analysis requires numeric data."
+      onExport={exportStatistics}
+      canExport={!!statistics}
+    >
+      {/* Column Selection */}
+      <div className="mb-6">
+        <ColumnSelector
+          columns={numericColumns}
+          selectedColumns={[selectedColumn]}
+          onSelectionChange={(columns) => {
+            const newColumn = columns[0] || '';
+            setSelectedColumn(newColumn);
+            setSelectedColumns([newColumn]);
+          }}
+          multiSelect={false}
+          label="Select Column"
+          description="Choose a numeric column for statistics analysis"
+        />
+      </div>
 
-        {loading && (
-          <div className="mb-4 flex items-center gap-2">
-            <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-primary"></div>
-            <span className="text-sm text-muted-foreground">Calculating statistics...</span>
-          </div>
-        )}
-
-        <Tabs value={activeTab} onValueChange={setActiveTab}>
+      <Tabs value={activeTab} onValueChange={setActiveTab}>
           <TabsList className="grid w-full grid-cols-3">
             <TabsTrigger value="overview">Overview</TabsTrigger>
             <TabsTrigger value="detailed">Detailed</TabsTrigger>
@@ -410,7 +354,7 @@ result
 
           <TabsContent value="overview" className="space-y-4">
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-              {renderStatCards().map((card, index) => (
+              {getStatCards().map((card, index) => (
                 <Card key={index}>
                   <CardContent className="p-4">
                     <div className="flex items-center justify-between">
@@ -430,7 +374,7 @@ result
           </TabsContent>
 
           <TabsContent value="detailed" className="space-y-4">
-            {renderDetailedStats()}
+            {getDetailedStats()}
           </TabsContent>
 
           <TabsContent value="distribution" className="space-y-4">
@@ -455,13 +399,12 @@ result
                     </div>
                   </div>
                 ) : (
-                  renderDistributionChart()
+                  getDistributionChart()
                 )}
               </CardContent>
             </Card>
           </TabsContent>
         </Tabs>
-      </CardContent>
-    </Card>
+    </BaseAnalyticsPanel>
   );
 }

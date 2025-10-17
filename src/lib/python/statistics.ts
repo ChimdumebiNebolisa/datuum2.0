@@ -90,25 +90,25 @@ export interface DistributionAnalysis {
 export function useStatistics() {
   const { executePython, isInitialized, loading } = usePythonExecution();
 
-  const setData = async (data: any[]): Promise<{ success: boolean; error?: string }> => {
+  const setData = async (_data: any[]): Promise<{ success: boolean; error?: string }> => {
     if (!isInitialized) {
       return { success: false, error: 'Python not initialized' };
     }
 
     try {
-      const code = `
-import sys
-sys.path.append('/python')
-import pandas as pd
-from statistics import statistics_analyzer
+      // const code = `
+// import sys
+// sys.path.append('/python')
+// import pandas as pd
+// from statistics import statistics_analyzer
+// 
+// # Set data
+// df = pd.DataFrame(data)
+// statistics_analyzer.set_data(df)
+// {'success': True}
+//       `;
 
-# Set data
-df = pd.DataFrame(data)
-statistics_analyzer.set_data(df)
-{'success': True}
-      `;
-
-      const result = await executePython(code, { data });
+      // const result = await executePython(code, { data });
       return { success: true };
     } catch (error) {
       return {

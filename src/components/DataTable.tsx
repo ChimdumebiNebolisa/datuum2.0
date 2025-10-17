@@ -7,13 +7,8 @@ import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { 
-  ChevronUp, 
-  ChevronDown, 
   Search, 
   Filter, 
-  MoreHorizontal,
-  Edit,
-  Trash2,
   Plus,
   Eye,
   EyeOff,
@@ -21,14 +16,14 @@ import {
   ArrowUp,
   ArrowDown,
   Download,
-  Upload
+  Trash2
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 interface DataTableProps {
   data: any[];
   columns: string[];
-  onDataChange?: (newData: any[]) => void;
+  onDataChange?: (_newData: any[]) => void;
   className?: string;
 }
 
@@ -269,6 +264,15 @@ export function DataTable({ data, columns, onDataChange, className }: DataTableP
         className="flex items-center gap-2 min-h-[32px] px-2 py-1 cursor-pointer hover:bg-muted/50 rounded"
         onClick={() => setEditingCell({ rowIndex, columnKey })}
         title="Click to edit"
+        role="button"
+        tabIndex={0}
+        aria-label={`Edit cell ${columnKey} in row ${rowIndex + 1}`}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter' || e.key === ' ') {
+            e.preventDefault();
+            setEditingCell({ rowIndex, columnKey });
+          }
+        }}
       >
         <span className="truncate">{String(value || '')}</span>
       </div>
@@ -294,11 +298,11 @@ export function DataTable({ data, columns, onDataChange, className }: DataTableP
             </CardDescription>
           </div>
           <div className="flex items-center gap-2">
-            <Button variant="outline" size="sm" onClick={() => setShowFilters(!showFilters)}>
+            <Button variant="outline" size="sm" onClick={() => setShowFilters(!showFilters)} aria-label="Toggle filters panel">
               <Filter className="h-4 w-4 mr-2" />
               Filters
             </Button>
-            <Button variant="outline" size="sm" onClick={exportData}>
+            <Button variant="outline" size="sm" onClick={exportData} aria-label="Export data to CSV">
               <Download className="h-4 w-4 mr-2" />
               Export
             </Button>
@@ -331,13 +335,13 @@ export function DataTable({ data, columns, onDataChange, className }: DataTableP
             </SelectContent>
           </Select>
           
-          <Button variant="outline" size="sm" onClick={handleAddRow}>
+          <Button variant="outline" size="sm" onClick={handleAddRow} aria-label="Add new row to table">
             <Plus className="h-4 w-4 mr-2" />
             Add Row
           </Button>
           
           {selectedRows.size > 0 && (
-            <Button variant="destructive" size="sm" onClick={handleDeleteSelected}>
+            <Button variant="destructive" size="sm" onClick={handleDeleteSelected} aria-label={`Delete ${selectedRows.size} selected rows`}>
               <Trash2 className="h-4 w-4 mr-2" />
               Delete ({selectedRows.size})
             </Button>
@@ -349,7 +353,7 @@ export function DataTable({ data, columns, onDataChange, className }: DataTableP
           <div className="space-y-2 p-4 bg-muted/50 rounded-lg">
             <div className="flex items-center justify-between">
               <h4 className="font-medium">Filters</h4>
-              <Button variant="outline" size="sm" onClick={addFilter}>
+              <Button variant="outline" size="sm" onClick={addFilter} aria-label="Add new filter">
                 <Plus className="h-4 w-4 mr-2" />
                 Add Filter
               </Button>
@@ -395,7 +399,7 @@ export function DataTable({ data, columns, onDataChange, className }: DataTableP
                   className="flex-1"
                 />
                 
-                <Button variant="outline" size="sm" onClick={() => removeFilter(index)}>
+                <Button variant="outline" size="sm" onClick={() => removeFilter(index)} aria-label={`Remove filter ${index + 1}`}>
                   <Trash2 className="h-4 w-4" />
                 </Button>
               </div>
@@ -412,6 +416,15 @@ export function DataTable({ data, columns, onDataChange, className }: DataTableP
               variant={visibleColumns.includes(col) ? 'default' : 'outline'}
               className="cursor-pointer"
               onClick={() => toggleColumnVisibility(col)}
+              role="button"
+              tabIndex={0}
+              aria-label={`${visibleColumns.includes(col) ? 'Hide' : 'Show'} column ${col}`}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' || e.key === ' ') {
+                  e.preventDefault();
+                  toggleColumnVisibility(col);
+                }
+              }}
             >
               {visibleColumns.includes(col) ? <Eye className="h-3 w-3 mr-1" /> : <EyeOff className="h-3 w-3 mr-1" />}
               {col}
@@ -443,6 +456,8 @@ export function DataTable({ data, columns, onDataChange, className }: DataTableP
                       <button
                         className="flex items-center gap-2 hover:bg-muted/80 p-1 rounded"
                         onClick={() => handleSort(col)}
+                        aria-label={`Sort by ${col}`}
+                        title={`Sort by ${col}`}
                       >
                         <span className="font-medium">{col}</span>
                         {renderSortIcon(col)}
@@ -483,6 +498,7 @@ export function DataTable({ data, columns, onDataChange, className }: DataTableP
                         variant="ghost"
                         size="sm"
                         onClick={() => handleDeleteRow(rowIndex)}
+                        aria-label={`Delete row ${rowIndex + 1}`}
                       >
                         <Trash2 className="h-4 w-4" />
                       </Button>
@@ -506,6 +522,7 @@ export function DataTable({ data, columns, onDataChange, className }: DataTableP
               size="sm"
               onClick={() => setCurrentPage(prev => Math.max(1, prev - 1))}
               disabled={currentPage === 1}
+              aria-label="Go to previous page"
             >
               Previous
             </Button>
@@ -519,6 +536,8 @@ export function DataTable({ data, columns, onDataChange, className }: DataTableP
                     variant={currentPage === pageNum ? "default" : "outline"}
                     size="sm"
                     onClick={() => setCurrentPage(pageNum)}
+                    aria-label={`Go to page ${pageNum}`}
+                    aria-current={currentPage === pageNum ? "page" : undefined}
                   >
                     {pageNum}
                   </Button>
@@ -531,6 +550,7 @@ export function DataTable({ data, columns, onDataChange, className }: DataTableP
               size="sm"
               onClick={() => setCurrentPage(prev => Math.min(totalPages, prev + 1))}
               disabled={currentPage === totalPages}
+              aria-label="Go to next page"
             >
               Next
             </Button>

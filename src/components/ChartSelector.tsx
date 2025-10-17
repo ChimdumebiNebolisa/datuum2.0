@@ -2,7 +2,6 @@
 
 import { useState } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { 
   BarChart3, 
@@ -16,6 +15,7 @@ import {
   Target,
   CheckCircle
 } from 'lucide-react';
+import { ChartRecommendation } from '@/types/analytics';
 
 interface ChartType {
   id: string;
@@ -28,14 +28,8 @@ interface ChartType {
 }
 
 interface ChartSelectorProps {
-  onSelectChart: (chartType: string, config: any) => void;
-  recommendations?: Array<{
-    chart_type: string;
-    score: number;
-    description: string;
-    suitable_for: string[];
-    confidence: string;
-  }>;
+  onSelectChart: (_chartType: string, _config: any) => void;
+  recommendations?: ChartRecommendation[];
   dataColumns?: string[];
   className?: string;
 }
@@ -105,8 +99,10 @@ export function ChartSelector({
     const recommendation = recommendations.find(rec => rec.chart_type === chart.id);
     return {
       ...chart,
-      score: recommendation?.score || 0,
-      confidence: recommendation?.confidence || 'Low'
+      score: recommendation?.confidence || 0,
+      confidence: typeof recommendation?.confidence === 'number' 
+        ? recommendation.confidence > 0.8 ? 'High' : recommendation.confidence > 0.5 ? 'Medium' : 'Low'
+        : 'Low'
     };
   }).sort((a, b) => (b.score || 0) - (a.score || 0));
 
@@ -211,6 +207,15 @@ export function ChartSelector({
                     : 'hover:bg-muted/50'
                 }`}
                 onClick={() => handleChartSelect(chart)}
+                role="button"
+                tabIndex={0}
+                aria-label={`Select ${chart.name} chart - ${chart.description}`}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' || e.key === ' ') {
+                    e.preventDefault();
+                    handleChartSelect(chart);
+                  }
+                }}
               >
                 <CardContent className="p-3 md:p-4">
                   <div className="flex items-start justify-between mb-2 md:mb-3">

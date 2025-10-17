@@ -34,8 +34,8 @@ A modern, privacy-first data visualization platform powered by Python and WebAss
 ### Frontend
 - **Next.js 15** + **React 19** + **TypeScript**
 - **Tailwind CSS v4** + **Shadcn/ui** components
-- **Plotly.js** + **D3.js** for visualizations
-- **Framer Motion** for animations
+- **Plotly.js** for interactive visualizations
+- **Lucide React** for icons and UI elements
 
 ### Python Runtime
 - **Pyodide** (Python in WebAssembly)

@@ -1,5 +1,6 @@
 // JavaScript wrapper for Python data processing module
 import { usePythonExecution } from '../pyodide-bridge';
+import { logger } from '../logger';
 
 export interface DataProcessingResult {
   success: boolean;
@@ -266,32 +267,25 @@ result
 }
 
 // Utility functions for data processing
-export const parseCSV = (csvText: string): any[] => {
-  const lines = csvText.split('\n').filter(line => line.trim());
-  if (lines.length === 0) return [];
-  
-  const headers = lines[0].split(',').map(h => h.trim().replace(/"/g, ''));
-  const data = [];
-  
-  for (let i = 1; i < lines.length; i++) {
-    const values = lines[i].split(',').map(v => v.trim().replace(/"/g, ''));
-    const row: any = {};
-    
-    headers.forEach((header, index) => {
-      let value: any = values[index] || '';
-      
+export const parseCSV = async (csvText: string): Promise<any[]> => {
+  const Papa = (await import('papaparse')).default;
+  const result = Papa.parse(csvText, {
+    header: true,
+    skipEmptyLines: true,
+    transform: (value: string) => {
       // Try to parse as number
       if (value && !isNaN(Number(value))) {
-        value = Number(value);
+        return Number(value);
       }
-      
-      row[header] = value;
-    });
-    
-    data.push(row);
+      return value;
+    }
+  });
+  
+  if (result.errors.length > 0) {
+    logger.warn('CSV parsing warnings', result.errors);
   }
   
-  return data;
+  return result.data;
 };
 
 export const parseJSON = (jsonText: string): any => {

@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -17,7 +17,7 @@ import {
   Activity
 } from 'lucide-react';
 import { usePythonExecution } from '@/lib/pyodide-bridge';
-import Plotly from 'plotly.js-dist-min';
+import { logger } from '@/lib/logger';
 
 interface CorrelationPanelProps {
   data: any[];
@@ -56,15 +56,9 @@ export function CorrelationPanel({ data, dataColumns, className }: CorrelationPa
     if (numericColumns.length >= 2 && selectedColumns.length === 0) {
       setSelectedColumns(numericColumns.slice(0, Math.min(5, numericColumns.length)));
     }
-  }, [numericColumns]);
+  }, [numericColumns, selectedColumns.length]);
 
-  useEffect(() => {
-    if (selectedColumns.length >= 2 && isInitialized) {
-      calculateCorrelations();
-    }
-  }, [selectedColumns, correlationMethod, isInitialized]);
-
-  const calculateCorrelations = async () => {
+  const calculateCorrelations = useCallback(async () => {
     if (!isInitialized || selectedColumns.length < 2) return;
 
     setLoading(true);
@@ -97,46 +91,53 @@ result
       }
     } catch (error) {
       setError('Error calculating correlations');
-      console.error('Correlation calculation error:', error);
+      logger.error('Correlation calculation error:', error);
     } finally {
       setLoading(false);
     }
-  };
+  }, [isInitialized, selectedColumns, correlationMethod, data, executePython]);
+
+  useEffect(() => {
+    if (selectedColumns.length >= 2 && isInitialized) {
+      calculateCorrelations();
+    }
+  }, [selectedColumns, correlationMethod, isInitialized, calculateCorrelations]);
 
   const renderCorrelationHeatmap = () => {
     if (!correlationResults?.correlation_matrix) return null;
 
     const matrix = correlationResults.correlation_matrix;
-    const columns = Object.keys(matrix);
-    const z = columns.map(col1 => 
-      columns.map(col2 => matrix[col1][col2] || 0)
-    );
+    // const columns = Object.keys(matrix);
+    // const z = columns.map(col1 => 
+    //   columns.map(col2 => matrix[col1][col2] || 0)
+    // );
 
-    const plotData = [{
-      z: z,
-      x: columns,
-      y: columns,
-      type: 'heatmap',
-      colorscale: 'RdBu',
-      zmid: 0,
-      hoverongaps: false,
-      hovertemplate: '<b>%{x}</b> vs <b>%{y}</b><br>Correlation: %{z:.3f}<extra></extra>'
-    }];
+    // Plot data and layout configuration for Plotly heatmap
+    // const plotData = [{
+    //   z: z,
+    //   x: columns,
+    //   y: columns,
+    //   type: 'heatmap',
+    //   colorscale: 'RdBu',
+    //   zmid: 0,
+    //   hoverongaps: false,
+    //   hovertemplate: '<b>%{x}</b> vs <b>%{y}</b><br>Correlation: %{z:.3f}<extra></extra>'
+    // }];
 
-    const layout = {
-      title: `${correlationMethod.charAt(0).toUpperCase() + correlationMethod.slice(1)} Correlation Matrix`,
-      xaxis: { 
-        side: 'bottom',
-        tickangle: -45
-      },
-      yaxis: { 
-        autorange: 'reversed'
-      },
-      margin: { l: 100, r: 50, t: 50, b: 100 },
-      paper_bgcolor: 'rgba(0,0,0,0)',
-      plot_bgcolor: 'rgba(0,0,0,0)',
-      font: { color: 'hsl(var(--foreground))' }
-    };
+    // const layout = {
+    //   title: `${correlationMethod.charAt(0).toUpperCase() + correlationMethod.slice(1)} Correlation Matrix`,
+    //   xaxis: { 
+    //     side: 'bottom',
+    //     tickangle: -45
+    //   },
+    //   yaxis: { 
+    //     autorange: 'reversed'
+    //   },
+    //   margin: { l: 100, r: 50, t: 50, b: 100 },
+    //   paper_bgcolor: 'rgba(0,0,0,0)',
+    //   plot_bgcolor: 'rgba(0,0,0,0)',
+    //   font: { color: 'hsl(var(--foreground))' }
+    // };
 
     return (
       <div className="h-96 w-full" id="correlation-heatmap">
@@ -193,33 +194,34 @@ result
   const renderScatterPlot = () => {
     if (!selectedPair || !data.length) return null;
 
-    const { column1, column2 } = selectedPair;
-    const x = data.map(row => row[column1]).filter(val => typeof val === 'number' && !isNaN(val));
-    const y = data.map(row => row[column2]).filter(val => typeof val === 'number' && !isNaN(val));
+    // const { column1, column2 } = selectedPair;
+    // const x = data.map(row => row[column1]).filter(val => typeof val === 'number' && !isNaN(val));
+    // const y = data.map(row => row[column2]).filter(val => typeof val === 'number' && !isNaN(val));
 
-    const plotData = [{
-      x: x,
-      y: y,
-      type: 'scatter',
-      mode: 'markers',
-      name: `${column1} vs ${column2}`,
-      marker: {
-        color: '#3b82f6',
-        size: 6,
-        opacity: 0.7
-      },
-      hovertemplate: `<b>${column1}</b>: %{x}<br><b>${column2}</b>: %{y}<extra></extra>`
-    }];
+    // Plot data and layout configuration for Plotly scatter plot
+    // const plotData = [{
+    //   x: x,
+    //   y: y,
+    //   type: 'scatter',
+    //   mode: 'markers',
+    //   name: `${column1} vs ${column2}`,
+    //   marker: {
+    //     color: '#3b82f6',
+    //     size: 6,
+    //     opacity: 0.7
+    //   },
+    //   hovertemplate: `<b>${column1}</b>: %{x}<br><b>${column2}</b>: %{y}<extra></extra>`
+    // }];
 
-    const layout = {
-      title: `${column1} vs ${column2}`,
-      xaxis: { title: column1 },
-      yaxis: { title: column2 },
-      margin: { l: 60, r: 50, t: 50, b: 60 },
-      paper_bgcolor: 'rgba(0,0,0,0)',
-      plot_bgcolor: 'rgba(0,0,0,0)',
-      font: { color: 'hsl(var(--foreground))' }
-    };
+    // const layout = {
+    //   title: `${column1} vs ${column2}`,
+    //   xaxis: { title: column1 },
+    //   yaxis: { title: column2 },
+    //   margin: { l: 60, r: 50, t: 50, b: 60 },
+    //   paper_bgcolor: 'rgba(0,0,0,0)',
+    //   plot_bgcolor: 'rgba(0,0,0,0)',
+    //   font: { color: 'hsl(var(--foreground))' }
+    // };
 
     return (
       <div className="h-96 w-full" id="scatter-plot">

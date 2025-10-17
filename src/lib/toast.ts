@@ -1,5 +1,6 @@
 // Simple toast implementation that works with the new ToastProvider
 export { useToast } from '@/components/ui/simple-toast'
+import { logger } from '@/lib/logger';
 
 // Re-export toast function for backward compatibility
 export function toast(options: {
@@ -10,5 +11,5 @@ export function toast(options: {
 }) {
   // This will be handled by the ToastProvider context
   // For now, we'll just log to console as a fallback
-  console.log('Toast:', options)
+  logger.debug('Toast:', options)
 }
