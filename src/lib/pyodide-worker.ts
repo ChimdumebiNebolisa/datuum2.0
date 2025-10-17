@@ -25,38 +25,25 @@ async function initializePyodide() {
     const scriptUrl = getPyodideScriptUrl();
     const indexUrl = getPyodideIndexUrl();
     
-    // Load Pyodide script dynamically
-    if (typeof window !== 'undefined') {
-      // Browser environment - load Pyodide from CDN
-      const script = document.createElement('script');
-      script.src = scriptUrl;
-      document.head.appendChild(script);
-      
-      await new Promise((resolve, reject) => {
-        script.onload = resolve;
-        script.onerror = reject;
-      });
-      
-      // @ts-ignore - pyodide is now available globally
-      const { loadPyodide } = window.pyodide;
-      
-      pyodide = await loadPyodide({
-        indexURL: indexUrl
-      });
-    } else {
-      // Worker environment - use importScripts
-      importScripts(scriptUrl);
-      // @ts-ignore
-      const { loadPyodide } = self.pyodide;
-      
-      pyodide = await loadPyodide({
-        indexURL: indexUrl
-      });
-    }
+    // Worker environment - use importScripts
+    importScripts(scriptUrl);
+    // @ts-ignore
+    const { loadPyodide } = self.pyodide;
+    
+    pyodide = await loadPyodide({
+      indexURL: indexUrl
+    });
 
-    // Load essential packages from configuration
+    // Load essential packages one by one with progress tracking
     const packages = getPyodidePackages();
-    await pyodide.loadPackage(packages);
+    for (const pkg of packages) {
+      try {
+        await pyodide.loadPackage(pkg);
+      } catch (error) {
+        logger.warn(`Failed to load package ${pkg}:`, error);
+        // Continue with other packages
+      }
+    }
 
     isInitialized = true;
     return pyodide;

@@ -56,4 +56,25 @@
   body {
     @apply bg-background text-foreground;
   }
+  
+  /* Improve mobile scrolling and touch */
+  html {
+    -webkit-text-size-adjust: 100%;
+    -webkit-tap-highlight-color: transparent;
+  }
+  
+  /* Better mobile spacing */
+  @media (max-width: 640px) {
+    .container {
+      padding-left: 1rem;
+      padding-right: 1rem;
+    }
+  }
+  
+  /* Improve button touch targets on mobile */
+  @media (max-width: 640px) {
+    button {
+      min-height: 44px;
+    }
+  }
 }

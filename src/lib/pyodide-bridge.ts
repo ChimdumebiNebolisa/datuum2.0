@@ -49,12 +49,19 @@ export function usePythonExecution() {
           }
         });
 
-        // Initialize Pyodide
-        await sendMessage(workerInstance, 'INITIALIZE', {});
+        // Initialize Pyodide with timeout
+        const initPromise = sendMessage(workerInstance, 'INITIALIZE', {});
+        const timeoutPromise = new Promise((_, reject) => 
+          setTimeout(() => reject(new Error('Initialization timeout')), 60000)
+        );
+
+        await Promise.race([initPromise, timeoutPromise]);
         setWorker(workerInstance);
         setIsInitialized(true);
       } catch (error) {
         logger.error('Python worker initialization error:', error as Error, 'Python worker initialization');
+        // Set as initialized anyway to allow fallback
+        setIsInitialized(true);
       }
     };
 
@@ -99,13 +106,18 @@ export function usePythonExecution() {
     context: Record<string, any> = {}
   ): Promise<T> => {
     if (!worker || !isInitialized) {
-      throw new Error('Python worker not initialized');
+      // Fallback for when Python is not available
+      logger.warn('Python worker not available, using fallback');
+      return { success: false, error: 'Python engine not available' } as T;
     }
 
     setLoading(true);
     try {
       const result = await sendMessage<T>(worker, 'EXECUTE', { code, context });
       return result;
+    } catch (error) {
+      logger.error('Python execution error:', error as Error);
+      return { success: false, error: 'Python execution failed' } as T;
     } finally {
       setLoading(false);
     }

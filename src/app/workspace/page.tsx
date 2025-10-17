@@ -538,7 +538,7 @@ result
 
   if (!isPythonReady) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-background">
+      <div className="min-h-screen flex items-center justify-center bg-background px-4">
         <Card className="w-full max-w-md">
           <CardHeader>
             <CardTitle className="text-center">Initializing Datuum 2.0</CardTitle>
@@ -548,7 +548,7 @@ result
               <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary mx-auto"></div>
               <div>
                 <h3 className="text-lg font-medium">Loading Python Engine</h3>
-                <p className="text-sm text-muted-foreground">
+                <p className="text-sm text-muted-foreground px-4">
                   Initializing Pyodide and data science libraries...
                 </p>
               </div>
@@ -573,10 +573,18 @@ result
               </div>
             </div>
             
-            <div className="text-center">
-              <p className="text-xs text-muted-foreground">
+            <div className="text-center space-y-2">
+              <p className="text-xs text-muted-foreground px-4">
                 This may take a moment on first load
               </p>
+              <Button 
+                variant="outline" 
+                size="sm" 
+                onClick={() => setIsPythonReady(true)}
+                className="text-xs"
+              >
+                Skip for now
+              </Button>
             </div>
           </CardContent>
         </Card>
@@ -646,13 +654,13 @@ result
         <div className="container mx-auto max-w-7xl px-4 sm:px-6 lg:px-8 py-4 md:py-6">
           <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-4 md:space-y-6">
             <TabsList className="grid w-full grid-cols-3 h-auto min-h-[44px]" role="tablist" aria-label="Workspace navigation">
-              <TabsTrigger value="upload" className="text-xs md:text-sm py-2 px-3" role="tab" aria-selected={activeTab === 'upload'}>
+              <TabsTrigger value="upload" className="text-sm py-2 px-3 md:text-base" role="tab" aria-selected={activeTab === 'upload'}>
                 Upload
               </TabsTrigger>
-              <TabsTrigger value="data" className="text-xs md:text-sm py-2 px-3" role="tab" aria-selected={activeTab === 'data'}>
+              <TabsTrigger value="data" className="text-sm py-2 px-3 md:text-base" role="tab" aria-selected={activeTab === 'data'}>
                 Data
               </TabsTrigger>
-              <TabsTrigger value="analytics" className="text-xs md:text-sm py-2 px-3" role="tab" aria-selected={activeTab === 'analytics'}>
+              <TabsTrigger value="analytics" className="text-sm py-2 px-3 md:text-base" role="tab" aria-selected={activeTab === 'analytics'}>
                 Analytics
               </TabsTrigger>
             </TabsList>

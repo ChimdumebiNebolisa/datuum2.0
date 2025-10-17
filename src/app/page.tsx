@@ -41,15 +41,16 @@ export default function Home() {
     <main className="min-h-screen bg-gradient-to-br from-blue-50 via-white to-indigo-50 dark:from-gray-900 dark:via-gray-800 dark:to-gray-900">
       {/* Navigation */}
       <nav className="border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
-        <div className="container flex h-16 items-center">
-          <div className="mr-4 flex">
-            <Link href="/" className="mr-6 flex items-center space-x-2">
-              <span className="font-bold text-xl">Datuum 2.0</span>
-            </Link>
-          </div>
-          
-          <div className="flex flex-1 items-center justify-between space-x-2 md:justify-end">
-            <nav className="flex items-center space-x-6">
+        <div className="container mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
+          <div className="flex h-16 items-center justify-between">
+            <div className="flex items-center">
+              <Link href="/" className="flex items-center space-x-2">
+                <span className="font-bold text-xl">Datuum 2.0</span>
+              </Link>
+            </div>
+            
+            {/* Desktop Navigation */}
+            <div className="hidden md:flex items-center space-x-6">
               <Link href="/workspace" className="text-sm font-medium transition-colors hover:text-primary">
                 Workspace
               </Link>
@@ -59,13 +60,22 @@ export default function Home() {
               <Link href="#about" className="text-sm font-medium transition-colors hover:text-primary">
                 About
               </Link>
-            </nav>
+            </div>
             
-            <div className="flex items-center space-x-2">
+            <div className="hidden md:flex items-center">
               <Button asChild>
                 <Link href="/workspace">
                   Get Started
                   <ArrowRight className="ml-2 h-4 w-4" />
+                </Link>
+              </Button>
+            </div>
+
+            {/* Mobile Menu Button */}
+            <div className="md:hidden">
+              <Button variant="outline" size="sm" asChild>
+                <Link href="/workspace">
+                  Get Started
                 </Link>
               </Button>
             </div>
@@ -74,17 +84,17 @@ export default function Home() {
       </nav>
 
       {/* Hero Section */}
-      <div className="container mx-auto px-4 py-20">
+      <div className="container mx-auto max-w-7xl px-4 sm:px-6 lg:px-8 py-12 md:py-20">
         <div className="max-w-4xl mx-auto text-center">
-          <h1 className="text-5xl md:text-6xl font-bold text-gray-900 dark:text-white mb-6">
+          <h1 className="text-3xl sm:text-4xl md:text-5xl lg:text-6xl font-bold text-gray-900 dark:text-white mb-6">
             Advanced Data Visualization
             <span className="block text-primary-600 dark:text-primary-400">with Python Analytics</span>
           </h1>
-          <p className="text-xl text-gray-600 dark:text-gray-300 mb-8 max-w-2xl mx-auto">
+          <p className="text-lg sm:text-xl text-gray-600 dark:text-gray-300 mb-8 max-w-2xl mx-auto px-4">
             Upload your data, get instant insights, and create beautiful visualizations. 
             All powered by real Python libraries running in your browser.
           </p>
-          <div className="flex flex-col sm:flex-row gap-4 justify-center">
+          <div className="flex flex-col sm:flex-row gap-4 justify-center px-4">
             <Button size="lg" asChild>
               <Link href="/workspace">
                 Start Analyzing
@@ -99,18 +109,18 @@ export default function Home() {
       </div>
 
       {/* Features Section */}
-      <section id="features" className="py-20 bg-muted/30">
-        <div className="container mx-auto px-4">
-          <div className="max-w-2xl mx-auto text-center mb-16">
-            <h2 className="text-3xl font-bold text-gray-900 dark:text-white mb-4">
+      <section id="features" className="py-12 md:py-20 bg-muted/30">
+        <div className="container mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
+          <div className="max-w-2xl mx-auto text-center mb-12 md:mb-16">
+            <h2 className="text-2xl sm:text-3xl font-bold text-gray-900 dark:text-white mb-4">
               Powerful Features
             </h2>
-            <p className="text-lg text-gray-600 dark:text-gray-300">
+            <p className="text-lg text-gray-600 dark:text-gray-300 px-4">
               Everything you need for professional data analysis and visualization
             </p>
           </div>
           
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6 md:gap-8">
             {features.map((feature, index) => (
               <Card key={index} className="text-center">
                 <CardHeader>
@@ -131,13 +141,13 @@ export default function Home() {
       </section>
 
       {/* CTA Section */}
-      <section className="py-20">
-        <div className="container mx-auto px-4 text-center">
+      <section className="py-12 md:py-20">
+        <div className="container mx-auto max-w-7xl px-4 sm:px-6 lg:px-8 text-center">
           <div className="max-w-2xl mx-auto">
-            <h2 className="text-3xl font-bold text-gray-900 dark:text-white mb-4">
+            <h2 className="text-2xl sm:text-3xl font-bold text-gray-900 dark:text-white mb-4">
               Ready to Analyze Your Data?
             </h2>
-            <p className="text-lg text-gray-600 dark:text-gray-300 mb-8">
+            <p className="text-lg text-gray-600 dark:text-gray-300 mb-8 px-4">
               No installation required. No data upload to servers. 
               Just open your browser and start analyzing.
             </p>
@@ -153,7 +163,7 @@ export default function Home() {
 
       {/* Footer */}
       <footer id="about" className="border-t bg-muted/30 py-12">
-        <div className="container mx-auto px-4">
+        <div className="container mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
           <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
             <div>
               <h3 className="font-semibold mb-4">Datuum 2.0</h3>
@@ -177,7 +187,7 @@ export default function Home() {
               </p>
             </div>
           </div>
-          <div className="border-t mt-8 pt-8 text-center text-sm text-muted-foreground">
+          <div className="border-t mt-8 pt-8 text-center text-sm text-muted-foreground px-4">
             <p>&copy; 2024 Datuum 2.0. Built with privacy and performance in mind.</p>
           </div>
         </div>
