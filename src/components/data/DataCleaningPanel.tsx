@@ -5,642 +5,797 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Checkbox } from '@/components/ui/checkbox';
 import { 
   Wrench, 
-  CheckCircle, 
   AlertTriangle, 
-  Info, 
+  CheckCircle, 
   Trash2, 
   RotateCcw,
   Search,
   Filter,
   Type,
-  Calendar,
   Hash,
-  Eye,
-  EyeOff
+  Calendar,
+  Zap,
+  Copy
 } from 'lucide-react';
+import { useToast } from '@/lib/toast';
 
 interface DataCleaningPanelProps {
   data: any[];
   columns: string[];
-  onDataChange: (newData: any[]) => void;
+  onDataChange?: (newData: any[]) => void;
   className?: string;
 }
 
 interface CleaningIssue {
-  type: 'missing' | 'duplicate' | 'outlier' | 'format' | 'invalid';
+  type: 'missing' | 'duplicate' | 'outlier' | 'format' | 'whitespace' | 'case';
   column: string;
-  rowIndex: number;
-  value: any;
+  count: number;
   description: string;
   severity: 'low' | 'medium' | 'high';
 }
 
-interface DataQualityReport {
-  totalRows: number;
-  totalColumns: number;
-  issues: CleaningIssue[];
-  columnStats: Record<string, {
-    nullCount: number;
-    nullPercentage: number;
-    uniqueCount: number;
-    dataType: string;
-    issues: CleaningIssue[];
-  }>;
+interface CleaningOperation {
+  id: string;
+  type: string;
+  column: string;
+  config: any;
+  applied: boolean;
 }
 
 export function DataCleaningPanel({ data, columns, onDataChange, className }: DataCleaningPanelProps) {
-  const [qualityReport, setQualityReport] = useState<DataQualityReport | null>(null);
-  const [selectedIssues, setSelectedIssues] = useState<Set<string>>(new Set());
-  const [selectedColumns, setSelectedColumns] = useState<string[]>(columns);
-  const [showAllIssues, setShowAllIssues] = useState(false);
-  const [cleaningRules, setCleaningRules] = useState({
-    trimWhitespace: true,
-    standardizeCase: false,
-    caseType: 'lower' as 'lower' | 'upper' | 'title',
-    removeSpecialChars: false,
-    convertToNumeric: true,
-    dateFormat: 'auto',
-    customDateFormat: '',
-    handleNulls: 'keep' as 'keep' | 'remove' | 'fill',
-    nullFillValue: '',
-    outlierMethod: 'iqr' as 'iqr' | 'zscore' | 'none',
-    outlierThreshold: 1.5
-  });
+  const [issues, setIssues] = useState<CleaningIssue[]>([]);
+  const [operations, setOperations] = useState<CleaningOperation[]>([]);
+  const [selectedColumn, setSelectedColumn] = useState('');
+  const [missingValueStrategy, setMissingValueStrategy] = useState<'remove' | 'mean' | 'median' | 'mode' | 'fill'>('remove');
+  const [missingValueFill, setMissingValueFill] = useState('');
+  const [duplicateStrategy, setDuplicateStrategy] = useState<'remove' | 'keep_first' | 'keep_last'>('remove');
+  const [whitespaceStrategy, setWhitespaceStrategy] = useState<'trim' | 'remove' | 'normalize'>('trim');
+  const [caseStrategy, setCaseStrategy] = useState<'lower' | 'upper' | 'title' | 'none'>('none');
+  const [outlierStrategy, setOutlierStrategy] = useState<'remove' | 'cap' | 'transform'>('remove');
+  const [outlierMethod, setOutlierMethod] = useState<'iqr' | 'zscore'>('iqr');
+  const [outlierThreshold, setOutlierThreshold] = useState(1.5);
+  const [activeTab, setActiveTab] = useState('detect');
+
+  const { toast } = useToast();
 
   useEffect(() => {
-    if (data.length > 0) {
-      analyzeDataQuality();
-    }
-  }, [data, columns]);
+    detectIssues();
+  }, [data]);
 
-  const analyzeDataQuality = () => {
-    const issues: CleaningIssue[] = [];
-    const columnStats: Record<string, any> = {};
+  const detectIssues = () => {
+    const detectedIssues: CleaningIssue[] = [];
 
-    // Analyze each column
     columns.forEach(column => {
-      const values = data.map((row, index) => ({ value: row[column], index }));
-      const nonNullValues = values.filter(v => v.value !== null && v.value !== undefined && v.value !== '');
+      const values = data.map(row => row[column]);
       
-      columnStats[column] = {
-        nullCount: values.length - nonNullValues.length,
-        nullPercentage: ((values.length - nonNullValues.length) / values.length) * 100,
-        uniqueCount: new Set(nonNullValues.map(v => String(v.value))).size,
-        dataType: detectDataType(nonNullValues.map(v => v.value)),
-        issues: []
-      };
-
-      // Check for missing values
-      values.forEach(({ value, index }) => {
-        if (value === null || value === undefined || value === '') {
-          const issue: CleaningIssue = {
-            type: 'missing',
-            column,
-            rowIndex: index,
-            value,
-            description: 'Missing value',
-            severity: 'medium'
-          };
-          issues.push(issue);
-          columnStats[column].issues.push(issue);
-        }
-      });
-
-      // Check for format issues
-      nonNullValues.forEach(({ value, index }) => {
-        const strValue = String(value);
-        
-        // Check for leading/trailing whitespace
-        if (strValue !== strValue.trim()) {
-          const issue: CleaningIssue = {
-            type: 'format',
-            column,
-            rowIndex: index,
-            value,
-            description: 'Has leading/trailing whitespace',
-            severity: 'low'
-          };
-          issues.push(issue);
-          columnStats[column].issues.push(issue);
-        }
-
-        // Check for inconsistent case (if text)
-        if (columnStats[column].dataType === 'text') {
-          const hasUpper = /[A-Z]/.test(strValue);
-          const hasLower = /[a-z]/.test(strValue);
-          if (hasUpper && hasLower && strValue.length > 1) {
-            const issue: CleaningIssue = {
-              type: 'format',
-              column,
-              rowIndex: index,
-              value,
-              description: 'Inconsistent case',
-              severity: 'low'
-            };
-            issues.push(issue);
-            columnStats[column].issues.push(issue);
-          }
-        }
-      });
-
-      // Check for duplicates
-      if (columnStats[column].uniqueCount < nonNullValues.length) {
-        const valueCounts = nonNullValues.reduce((acc, { value }) => {
-          const key = String(value);
-          acc[key] = (acc[key] || 0) + 1;
-          return acc;
-        }, {} as Record<string, number>);
-
-        Object.entries(valueCounts).forEach(([value, count]) => {
-          if (count > 1) {
-            const issue: CleaningIssue = {
-              type: 'duplicate',
-              column,
-              rowIndex: -1, // Multiple rows
-              value,
-              description: `Duplicate value appears ${count} times`,
-              severity: 'medium'
-            };
-            issues.push(issue);
-          }
+      // Missing values
+      const missingCount = values.filter(val => val == null || val === '' || val === undefined).length;
+      if (missingCount > 0) {
+        detectedIssues.push({
+          type: 'missing',
+          column,
+          count: missingCount,
+          description: `${missingCount} missing values`,
+          severity: missingCount > data.length * 0.1 ? 'high' : missingCount > data.length * 0.05 ? 'medium' : 'low'
         });
       }
 
-      // Check for outliers (numeric columns)
-      if (columnStats[column].dataType === 'numeric' && nonNullValues.length > 10) {
-        const numericValues = nonNullValues
-          .map(v => Number(v.value))
-          .filter(v => !isNaN(v));
-        
-        if (numericValues.length > 0) {
-          const q1 = numericValues.sort((a, b) => a - b)[Math.floor(numericValues.length * 0.25)];
-          const q3 = numericValues.sort((a, b) => a - b)[Math.floor(numericValues.length * 0.75)];
-          const iqr = q3 - q1;
-          const lowerBound = q1 - (cleaningRules.outlierThreshold * iqr);
-          const upperBound = q3 + (cleaningRules.outlierThreshold * iqr);
+      // Duplicates
+      const uniqueValues = new Set(values);
+      const duplicateCount = values.length - uniqueValues.size;
+      if (duplicateCount > 0) {
+        detectedIssues.push({
+          type: 'duplicate',
+          column,
+          count: duplicateCount,
+          description: `${duplicateCount} duplicate values`,
+          severity: duplicateCount > data.length * 0.2 ? 'high' : duplicateCount > data.length * 0.1 ? 'medium' : 'low'
+        });
+      }
 
-          numericValues.forEach((value, i) => {
-            if (value < lowerBound || value > upperBound) {
-              const originalIndex = nonNullValues.findIndex(v => Number(v.value) === value)?.index;
-              if (originalIndex !== undefined) {
-                const issue: CleaningIssue = {
-                  type: 'outlier',
-                  column,
-                  rowIndex: originalIndex,
-                  value,
-                  description: `Potential outlier (${value})`,
-                  severity: 'high'
-                };
-                issues.push(issue);
-                columnStats[column].issues.push(issue);
-              }
-            }
+      // Whitespace issues
+      const stringValues = values.filter(val => typeof val === 'string');
+      const whitespaceCount = stringValues.filter(val => val !== val.trim()).length;
+      if (whitespaceCount > 0) {
+        detectedIssues.push({
+          type: 'whitespace',
+          column,
+          count: whitespaceCount,
+          description: `${whitespaceCount} values with extra whitespace`,
+          severity: 'low'
+        });
+      }
+
+      // Case inconsistencies
+      const textValues = stringValues.filter(val => val.length > 0);
+      if (textValues.length > 0) {
+        const firstCase = textValues[0][0];
+        const caseInconsistent = textValues.some(val => val[0] !== firstCase);
+        if (caseInconsistent) {
+          detectedIssues.push({
+            type: 'case',
+            column,
+            count: textValues.length,
+            description: 'Inconsistent case formatting',
+            severity: 'low'
+          });
+        }
+      }
+
+      // Numeric outliers (simplified detection)
+      const numericValues = values.filter(val => typeof val === 'number' && !isNaN(val));
+      if (numericValues.length > 10) {
+        const mean = numericValues.reduce((a, b) => a + b, 0) / numericValues.length;
+        const std = Math.sqrt(numericValues.reduce((sq, n) => sq + Math.pow(n - mean, 2), 0) / numericValues.length);
+        const outliers = numericValues.filter(val => Math.abs(val - mean) > 2 * std);
+        if (outliers.length > 0) {
+          detectedIssues.push({
+            type: 'outlier',
+            column,
+            count: outliers.length,
+            description: `${outliers.length} potential outliers`,
+            severity: outliers.length > numericValues.length * 0.1 ? 'high' : 'medium'
           });
         }
       }
     });
 
-    setQualityReport({
-      totalRows: data.length,
-      totalColumns: columns.length,
-      issues,
-      columnStats
+    setIssues(detectedIssues);
+  };
+
+  const addMissingValueOperation = () => {
+    if (!selectedColumn) {
+      toast({
+        title: "Error",
+        description: "Please select a column",
+        variant: "destructive"
+      });
+      return;
+    }
+
+    const operation: CleaningOperation = {
+      id: Date.now().toString(),
+      type: 'missing_values',
+      column: selectedColumn,
+      config: {
+        strategy: missingValueStrategy,
+        fillValue: missingValueFill
+      },
+      applied: false
+    };
+
+    setOperations([...operations, operation]);
+  };
+
+  const addDuplicateOperation = () => {
+    if (!selectedColumn) {
+      toast({
+        title: "Error",
+        description: "Please select a column",
+        variant: "destructive"
+      });
+      return;
+    }
+
+    const operation: CleaningOperation = {
+      id: Date.now().toString(),
+      type: 'duplicates',
+      column: selectedColumn,
+      config: {
+        strategy: duplicateStrategy
+      },
+      applied: false
+    };
+
+    setOperations([...operations, operation]);
+  };
+
+  const addWhitespaceOperation = () => {
+    if (!selectedColumn) {
+      toast({
+        title: "Error",
+        description: "Please select a column",
+        variant: "destructive"
+      });
+      return;
+    }
+
+    const operation: CleaningOperation = {
+      id: Date.now().toString(),
+      type: 'whitespace',
+      column: selectedColumn,
+      config: {
+        strategy: whitespaceStrategy
+      },
+      applied: false
+    };
+
+    setOperations([...operations, operation]);
+  };
+
+  const addCaseOperation = () => {
+    if (!selectedColumn) {
+      toast({
+        title: "Error",
+        description: "Please select a column",
+        variant: "destructive"
+      });
+      return;
+    }
+
+    const operation: CleaningOperation = {
+      id: Date.now().toString(),
+      type: 'case',
+      column: selectedColumn,
+      config: {
+        strategy: caseStrategy
+      },
+      applied: false
+    };
+
+    setOperations([...operations, operation]);
+  };
+
+  const addOutlierOperation = () => {
+    if (!selectedColumn) {
+      toast({
+        title: "Error",
+        description: "Please select a column",
+        variant: "destructive"
+      });
+      return;
+    }
+
+    const operation: CleaningOperation = {
+      id: Date.now().toString(),
+      type: 'outliers',
+      column: selectedColumn,
+      config: {
+        strategy: outlierStrategy,
+        method: outlierMethod,
+        threshold: outlierThreshold
+      },
+      applied: false
+    };
+
+    setOperations([...operations, operation]);
+  };
+
+  const applyOperations = () => {
+    let newData = [...data];
+
+    operations.forEach(operation => {
+      if (operation.applied) return;
+
+      switch (operation.type) {
+        case 'missing_values':
+          newData = handleMissingValues(newData, operation.column, operation.config);
+          break;
+        case 'duplicates':
+          newData = handleDuplicates(newData, operation.column, operation.config);
+          break;
+        case 'whitespace':
+          newData = handleWhitespace(newData, operation.column, operation.config);
+          break;
+        case 'case':
+          newData = handleCase(newData, operation.column, operation.config);
+          break;
+        case 'outliers':
+          newData = handleOutliers(newData, operation.column, operation.config);
+          break;
+      }
+    });
+
+    // Mark operations as applied
+    setOperations(operations.map(op => ({ ...op, applied: true })));
+    
+    onDataChange?.(newData);
+    
+    toast({
+      title: "Success",
+      description: `Applied ${operations.filter(op => !op.applied).length} cleaning operations`,
+    });
+
+    // Re-detect issues
+    setTimeout(() => detectIssues(), 100);
+  };
+
+  const handleMissingValues = (data: any[], column: string, config: any) => {
+    const { strategy, fillValue } = config;
+    
+    if (strategy === 'remove') {
+      return data.filter(row => row[column] != null && row[column] !== '');
+    }
+    
+    if (strategy === 'fill') {
+      return data.map(row => ({
+        ...row,
+        [column]: row[column] == null || row[column] === '' ? fillValue : row[column]
+      }));
+    }
+    
+    if (strategy === 'mean' || strategy === 'median' || strategy === 'mode') {
+      const numericValues = data
+        .map(row => row[column])
+        .filter(val => typeof val === 'number' && !isNaN(val));
+      
+      if (numericValues.length === 0) return data;
+      
+      let replacementValue;
+      if (strategy === 'mean') {
+        replacementValue = numericValues.reduce((a, b) => a + b, 0) / numericValues.length;
+      } else if (strategy === 'median') {
+        const sorted = [...numericValues].sort((a, b) => a - b);
+        const mid = Math.floor(sorted.length / 2);
+        replacementValue = sorted.length % 2 === 0 ? (sorted[mid - 1] + sorted[mid]) / 2 : sorted[mid];
+      } else { // mode
+        const frequency: { [key: number]: number } = {};
+        numericValues.forEach(val => {
+          frequency[val] = (frequency[val] || 0) + 1;
+        });
+        replacementValue = Object.keys(frequency).reduce((a, b) => 
+          frequency[Number(a)] > frequency[Number(b)] ? a : b
+        );
+      }
+      
+      return data.map(row => ({
+        ...row,
+        [column]: row[column] == null || row[column] === '' ? replacementValue : row[column]
+      }));
+    }
+    
+    return data;
+  };
+
+  const handleDuplicates = (data: any[], column: string, config: any) => {
+    const { strategy } = config;
+    
+    if (strategy === 'remove') {
+      const seen = new Set();
+      return data.filter(row => {
+        const value = row[column];
+        if (seen.has(value)) return false;
+        seen.add(value);
+        return true;
+      });
+    }
+    
+    if (strategy === 'keep_first') {
+      const seen = new Set();
+      return data.filter(row => {
+        const value = row[column];
+        if (seen.has(value)) return false;
+        seen.add(value);
+        return true;
+      });
+    }
+    
+    if (strategy === 'keep_last') {
+      const seen = new Set();
+      return data.reverse().filter(row => {
+        const value = row[column];
+        if (seen.has(value)) return false;
+        seen.add(value);
+        return true;
+      }).reverse();
+    }
+    
+    return data;
+  };
+
+  const handleWhitespace = (data: any[], column: string, config: any) => {
+    const { strategy } = config;
+    
+    return data.map(row => {
+      const value = row[column];
+      if (typeof value !== 'string') return row;
+      
+      let cleanedValue = value;
+      if (strategy === 'trim') {
+        cleanedValue = value.trim();
+      } else if (strategy === 'remove') {
+        cleanedValue = value.replace(/\s+/g, '');
+      } else if (strategy === 'normalize') {
+        cleanedValue = value.replace(/\s+/g, ' ').trim();
+      }
+      
+      return { ...row, [column]: cleanedValue };
     });
   };
 
-  const detectDataType = (values: any[]): string => {
-    if (values.length === 0) return 'unknown';
+  const handleCase = (data: any[], column: string, config: any) => {
+    const { strategy } = config;
     
-    const sample = values.slice(0, Math.min(10, values.length));
-    const numericCount = sample.filter(v => !isNaN(Number(v)) && String(v).trim() !== '').length;
-    const dateCount = sample.filter(v => !isNaN(Date.parse(String(v)))).length;
-    const booleanCount = sample.filter(v => 
-      ['true', 'false', '1', '0', 'yes', 'no'].includes(String(v).toLowerCase())
-    ).length;
-
-    if (numericCount / sample.length > 0.8) return 'numeric';
-    if (dateCount / sample.length > 0.8) return 'date';
-    if (booleanCount / sample.length > 0.8) return 'boolean';
-    return 'text';
+    return data.map(row => {
+      const value = row[column];
+      if (typeof value !== 'string') return row;
+      
+      let transformedValue = value;
+      if (strategy === 'lower') {
+        transformedValue = value.toLowerCase();
+      } else if (strategy === 'upper') {
+        transformedValue = value.toUpperCase();
+      } else if (strategy === 'title') {
+        transformedValue = value.replace(/\w\S*/g, (txt) => 
+          txt.charAt(0).toUpperCase() + txt.substr(1).toLowerCase()
+        );
+      }
+      
+      return { ...row, [column]: transformedValue };
+    });
   };
 
-  const cleanData = () => {
-    let cleanedData = [...data];
-
-    // Apply cleaning rules
-    if (cleaningRules.trimWhitespace) {
-      cleanedData = cleanedData.map(row => {
-        const cleanedRow = { ...row };
-        selectedColumns.forEach(col => {
-          if (typeof cleanedRow[col] === 'string') {
-            cleanedRow[col] = cleanedRow[col].trim();
-          }
-        });
-        return cleanedRow;
-      });
+  const handleOutliers = (data: any[], column: string, config: any) => {
+    const { strategy, method, threshold } = config;
+    const values = data.map(row => row[column]).filter(val => typeof val === 'number' && !isNaN(val));
+    
+    if (values.length === 0) return data;
+    
+    let outlierIndices: number[] = [];
+    
+    if (method === 'iqr') {
+      const sorted = [...values].sort((a, b) => a - b);
+      const q1 = sorted[Math.floor(sorted.length * 0.25)];
+      const q3 = sorted[Math.floor(sorted.length * 0.75)];
+      const iqr = q3 - q1;
+      const lowerBound = q1 - threshold * iqr;
+      const upperBound = q3 + threshold * iqr;
+      
+      outlierIndices = data
+        .map((row, idx) => ({ row, idx, value: row[column] }))
+        .filter(item => typeof item.value === 'number' && (item.value < lowerBound || item.value > upperBound))
+        .map(item => item.idx);
+    } else if (method === 'zscore') {
+      const mean = values.reduce((a, b) => a + b, 0) / values.length;
+      const std = Math.sqrt(values.reduce((sq, n) => sq + Math.pow(n - mean, 2), 0) / values.length);
+      
+      outlierIndices = data
+        .map((row, idx) => ({ row, idx, value: row[column] }))
+        .filter(item => typeof item.value === 'number' && Math.abs(item.value - mean) > threshold * std)
+        .map(item => item.idx);
     }
-
-    if (cleaningRules.standardizeCase) {
-      cleanedData = cleanedData.map(row => {
-        const cleanedRow = { ...row };
-        selectedColumns.forEach(col => {
-          if (typeof cleanedRow[col] === 'string') {
-            switch (cleaningRules.caseType) {
-              case 'lower':
-                cleanedRow[col] = cleanedRow[col].toLowerCase();
-                break;
-              case 'upper':
-                cleanedRow[col] = cleanedRow[col].toUpperCase();
-                break;
-              case 'title':
-                cleanedRow[col] = cleanedRow[col].replace(/\w\S*/g, (txt) => 
-                  txt.charAt(0).toUpperCase() + txt.substr(1).toLowerCase()
-                );
-                break;
-            }
-          }
-        });
-        return cleanedRow;
-      });
+    
+    if (strategy === 'remove') {
+      return data.filter((_, idx) => !outlierIndices.includes(idx));
+    } else if (strategy === 'cap') {
+      const values = data.map(row => row[column]).filter(val => typeof val === 'number' && !isNaN(val));
+      const mean = values.reduce((a, b) => a + b, 0) / values.length;
+      const std = Math.sqrt(values.reduce((sq, n) => sq + Math.pow(n - mean, 2), 0) / values.length);
+      const capValue = mean + threshold * std;
+      
+      return data.map((row, idx) => ({
+        ...row,
+        [column]: outlierIndices.includes(idx) ? capValue : row[column]
+      }));
     }
+    
+    return data;
+  };
 
-    if (cleaningRules.removeSpecialChars) {
-      cleanedData = cleanedData.map(row => {
-        const cleanedRow = { ...row };
-        selectedColumns.forEach(col => {
-          if (typeof cleanedRow[col] === 'string') {
-            cleanedRow[col] = cleanedRow[col].replace(/[^a-zA-Z0-9\s]/g, '');
-          }
-        });
-        return cleanedRow;
-      });
-    }
+  const removeOperation = (id: string) => {
+    setOperations(operations.filter(op => op.id !== id));
+  };
 
-    if (cleaningRules.convertToNumeric) {
-      cleanedData = cleanedData.map(row => {
-        const cleanedRow = { ...row };
-        selectedColumns.forEach(col => {
-          const value = cleanedRow[col];
-          if (typeof value === 'string' && !isNaN(Number(value)) && value.trim() !== '') {
-            cleanedRow[col] = Number(value);
-          }
-        });
-        return cleanedRow;
-      });
-    }
-
-    // Handle null values
-    if (cleaningRules.handleNulls === 'remove') {
-      cleanedData = cleanedData.filter(row => 
-        selectedColumns.every(col => row[col] !== null && row[col] !== undefined && row[col] !== '')
-      );
-    } else if (cleaningRules.handleNulls === 'fill') {
-      cleanedData = cleanedData.map(row => {
-        const cleanedRow = { ...row };
-        selectedColumns.forEach(col => {
-          if (cleanedRow[col] === null || cleanedRow[col] === undefined || cleanedRow[col] === '') {
-            cleanedRow[col] = cleaningRules.nullFillValue;
-          }
-        });
-        return cleanedRow;
-      });
-    }
-
-    onDataChange(cleanedData);
+  const clearOperations = () => {
+    setOperations([]);
   };
 
   const getSeverityColor = (severity: string) => {
     switch (severity) {
-      case 'high': return 'text-destructive';
-      case 'medium': return 'text-warning';
-      case 'low': return 'text-blue-600';
-      default: return 'text-muted-foreground';
+      case 'high': return 'text-red-600 bg-red-50';
+      case 'medium': return 'text-yellow-600 bg-yellow-50';
+      case 'low': return 'text-blue-600 bg-blue-50';
+      default: return 'text-gray-600 bg-gray-50';
     }
   };
 
-  const getSeverityIcon = (severity: string) => {
-    switch (severity) {
-      case 'high': return <AlertTriangle className="h-4 w-4 text-destructive" />;
-      case 'medium': return <AlertTriangle className="h-4 w-4 text-warning" />;
-      case 'low': return <Info className="h-4 w-4 text-blue-600" />;
-      default: return <Info className="h-4 w-4 text-muted-foreground" />;
-    }
-  };
-
-  const getDataTypeIcon = (type: string) => {
+  const getIssueIcon = (type: string) => {
     switch (type) {
-      case 'numeric': return <Hash className="h-4 w-4" />;
-      case 'date': return <Calendar className="h-4 w-4" />;
-      case 'boolean': return <CheckCircle className="h-4 w-4" />;
-      case 'text': return <Type className="h-4 w-4" />;
-      default: return <Info className="h-4 w-4" />;
+      case 'missing': return <AlertTriangle className="h-4 w-4" />;
+      case 'duplicate': return <Copy className="h-4 w-4" />;
+      case 'outlier': return <Zap className="h-4 w-4" />;
+      case 'whitespace': return <Type className="h-4 w-4" />;
+      case 'case': return <Type className="h-4 w-4" />;
+      default: return <AlertTriangle className="h-4 w-4" />;
     }
   };
 
   return (
     <Card className={className}>
       <CardHeader>
-        <CardTitle className="flex items-center gap-2">
-          <Wrench className="h-5 w-5" />
-          Data Cleaning
-        </CardTitle>
-        <CardDescription>
-          Identify and fix data quality issues
-        </CardDescription>
+        <div className="flex items-center justify-between">
+          <div>
+            <CardTitle className="flex items-center gap-2">
+              <Wrench className="h-5 w-5" />
+              Data Cleaning
+            </CardTitle>
+            <CardDescription>
+              Detect and fix data quality issues
+            </CardDescription>
+          </div>
+          <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 sm:gap-3">
+            <Button variant="outline" size="sm" onClick={detectIssues} className="flex-1 sm:flex-none">
+              <Search className="h-4 w-4 mr-2" />
+              Re-scan
+            </Button>
+            <Button variant="outline" size="sm" onClick={clearOperations} className="flex-1 sm:flex-none">
+              <RotateCcw className="h-4 w-4 mr-2" />
+              Clear All
+            </Button>
+            <Button 
+              onClick={applyOperations}
+              disabled={operations.length === 0 || operations.every(op => op.applied)}
+              className="flex-1 sm:flex-none"
+            >
+              <CheckCircle className="h-4 w-4 mr-2" />
+              Apply Operations
+            </Button>
+          </div>
+        </div>
       </CardHeader>
       
-      <CardContent>
-        <Tabs defaultValue="analysis" className="space-y-4">
-          <TabsList className="grid w-full grid-cols-3">
-            <TabsTrigger value="analysis">Quality Analysis</TabsTrigger>
-            <TabsTrigger value="issues">Issues</TabsTrigger>
+      <CardContent className="p-4 md:p-6">
+        <Tabs value={activeTab} onValueChange={setActiveTab}>
+          <TabsList className="grid w-full grid-cols-2">
+            <TabsTrigger value="detect">Detect Issues</TabsTrigger>
             <TabsTrigger value="clean">Clean Data</TabsTrigger>
           </TabsList>
 
-          <TabsContent value="analysis" className="space-y-6">
-            {qualityReport && (
-              <>
-                {/* Overview */}
-                <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-                  <Card>
-                    <CardContent className="p-4">
-                      <div className="flex items-center justify-between">
-                        <div>
-                          <p className="text-sm font-medium text-muted-foreground">Total Rows</p>
-                          <p className="text-2xl font-bold">{qualityReport.totalRows}</p>
-                        </div>
-                        <Eye className="h-8 w-8 text-primary" />
-                      </div>
-                    </CardContent>
-                  </Card>
-                  
-                  <Card>
-                    <CardContent className="p-4">
-                      <div className="flex items-center justify-between">
-                        <div>
-                          <p className="text-sm font-medium text-muted-foreground">Total Issues</p>
-                          <p className="text-2xl font-bold">{qualityReport.issues.length}</p>
-                        </div>
-                        <AlertTriangle className="h-8 w-8 text-warning" />
-                      </div>
-                    </CardContent>
-                  </Card>
-                  
-                  <Card>
-                    <CardContent className="p-4">
-                      <div className="flex items-center justify-between">
-                        <div>
-                          <p className="text-sm font-medium text-muted-foreground">High Priority</p>
-                          <p className="text-2xl font-bold text-destructive">
-                            {qualityReport.issues.filter(i => i.severity === 'high').length}
-                          </p>
-                        </div>
-                        <AlertTriangle className="h-8 w-8 text-destructive" />
-                      </div>
-                    </CardContent>
-                  </Card>
-                  
-                  <Card>
-                    <CardContent className="p-4">
-                      <div className="flex items-center justify-between">
-                        <div>
-                          <p className="text-sm font-medium text-muted-foreground">Data Quality</p>
-                          <p className="text-2xl font-bold text-green-600">
-                            {Math.round(((qualityReport.totalRows * qualityReport.totalColumns - qualityReport.issues.length) / (qualityReport.totalRows * qualityReport.totalColumns)) * 100)}%
-                          </p>
-                        </div>
-                        <CheckCircle className="h-8 w-8 text-green-600" />
-                      </div>
-                    </CardContent>
-                  </Card>
+          <TabsContent value="detect" className="space-y-4">
+            <div className="space-y-4">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                <h4 className="font-medium">Detected Issues ({issues.length})</h4>
+                <Badge variant="outline">
+                  {issues.filter(i => i.severity === 'high').length} High
+                </Badge>
+              </div>
+              
+              {issues.length === 0 ? (
+                <div className="text-center py-8 text-muted-foreground">
+                  <CheckCircle className="h-12 w-12 mx-auto mb-4 text-green-600" />
+                  <p>No data quality issues detected!</p>
                 </div>
-
-                {/* Column Analysis */}
-                <div className="space-y-4">
-                  <h4 className="font-medium">Column Analysis</h4>
-                  <div className="space-y-2">
-                    {Object.entries(qualityReport.columnStats).map(([column, stats]) => (
-                      <div key={column} className="p-4 border rounded-lg">
-                        <div className="flex items-center justify-between mb-2">
-                          <div className="flex items-center gap-2">
-                            {getDataTypeIcon(stats.dataType)}
-                            <span className="font-medium">{column}</span>
-                            <Badge variant="outline">{stats.dataType}</Badge>
-                          </div>
-                          <div className="flex items-center gap-2">
-                            <Badge variant={stats.issues.length === 0 ? 'secondary' : 'destructive'}>
-                              {stats.issues.length} issues
-                            </Badge>
-                          </div>
-                        </div>
-                        
-                        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
-                          <div>
-                            <span className="text-muted-foreground">Null values:</span>
-                            <span className="ml-2">{stats.nullCount} ({stats.nullPercentage.toFixed(1)}%)</span>
-                          </div>
-                          <div>
-                            <span className="text-muted-foreground">Unique values:</span>
-                            <span className="ml-2">{stats.uniqueCount}</span>
-                          </div>
-                          <div>
-                            <span className="text-muted-foreground">Issues:</span>
-                            <span className="ml-2">{stats.issues.length}</span>
-                          </div>
-                          <div>
-                            <span className="text-muted-foreground">Quality:</span>
-                            <span className="ml-2">
-                              {stats.nullPercentage === 0 && stats.issues.length === 0 ? (
-                                <span className="text-green-600">Good</span>
-                              ) : stats.nullPercentage < 10 && stats.issues.length < 5 ? (
-                                <span className="text-warning">Fair</span>
-                              ) : (
-                                <span className="text-destructive">Poor</span>
-                              )}
-                            </span>
-                          </div>
+              ) : (
+                <div className="space-y-2 max-h-64 overflow-y-auto">
+                  {issues.map((issue, index) => (
+                    <div key={index} className="flex items-center justify-between p-3 border rounded-lg">
+                      <div className="flex items-center gap-3">
+                        {getIssueIcon(issue.type)}
+                        <div>
+                          <div className="font-medium">{issue.column}</div>
+                          <div className="text-sm text-muted-foreground">{issue.description}</div>
                         </div>
                       </div>
-                    ))}
-                  </div>
-                </div>
-              </>
-            )}
-          </TabsContent>
-
-          <TabsContent value="issues" className="space-y-6">
-            {qualityReport && (
-              <>
-                <div className="flex items-center justify-between">
-                  <h4 className="font-medium">Data Quality Issues</h4>
-                  <div className="flex items-center gap-2">
-                    <Checkbox
-                      checked={showAllIssues}
-                      onCheckedChange={setShowAllIssues}
-                    />
-                    <label className="text-sm">Show all issues</label>
-                  </div>
-                </div>
-
-                <div className="space-y-2 max-h-96 overflow-y-auto">
-                  {(showAllIssues ? qualityReport.issues : qualityReport.issues.slice(0, 20)).map((issue, index) => (
-                    <div key={index} className="flex items-start gap-3 p-3 border rounded-lg">
-                      <div className="flex items-center gap-2">
-                        {getSeverityIcon(issue.severity)}
-                        <Badge variant="outline" className="text-xs">
-                          {issue.type}
-                        </Badge>
-                      </div>
-                      
-                      <div className="flex-1 min-w-0">
-                        <div className="font-medium">{issue.column}</div>
-                        <div className="text-sm text-muted-foreground">
-                          {issue.description}
-                        </div>
-                        {issue.rowIndex >= 0 && (
-                          <div className="text-xs text-muted-foreground">
-                            Row {issue.rowIndex + 1}: {String(issue.value)}
-                          </div>
-                        )}
-                      </div>
-                      
-                      <div className="flex items-center gap-2">
-                        <Badge variant="outline" className={getSeverityColor(issue.severity)}>
-                          {issue.severity}
-                        </Badge>
-                      </div>
+                      <Badge className={getSeverityColor(issue.severity)}>
+                        {issue.severity}
+                      </Badge>
                     </div>
                   ))}
                 </div>
-
-                {qualityReport.issues.length > 20 && !showAllIssues && (
-                  <div className="text-center">
-                    <Button variant="outline" onClick={() => setShowAllIssues(true)}>
-                      Show {qualityReport.issues.length - 20} more issues
-                    </Button>
-                  </div>
-                )}
-              </>
-            )}
+              )}
+            </div>
           </TabsContent>
 
-          <TabsContent value="clean" className="space-y-6">
+          <TabsContent value="clean" className="space-y-4">
             <div className="space-y-6">
+              {/* Missing Values */}
               <div>
-                <h4 className="font-medium mb-4">Select Columns to Clean</h4>
-                <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
-                  {columns.map(col => (
-                    <div key={col} className="flex items-center space-x-2">
-                      <Checkbox
-                        checked={selectedColumns.includes(col)}
-                        onCheckedChange={(checked) => {
-                          if (checked) {
-                            setSelectedColumns(prev => [...prev, col]);
-                          } else {
-                            setSelectedColumns(prev => prev.filter(c => c !== col));
-                          }
-                        }}
-                      />
-                      <label className="text-sm">{col}</label>
-                    </div>
-                  ))}
-                </div>
-              </div>
-
-              <div className="space-y-4">
-                <h4 className="font-medium">Cleaning Rules</h4>
-                
-                <div className="space-y-4">
-                  <div className="flex items-center space-x-2">
-                    <Checkbox
-                      checked={cleaningRules.trimWhitespace}
-                      onCheckedChange={(checked) => 
-                        setCleaningRules(prev => ({ ...prev, trimWhitespace: !!checked }))
-                      }
+                <h4 className="font-medium mb-3">Missing Values</h4>
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 md:gap-4">
+                  <Select value={selectedColumn} onValueChange={setSelectedColumn}>
+                    <SelectTrigger>
+                      <SelectValue placeholder="Select column" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {columns.map(col => (
+                        <SelectItem key={col} value={col}>{col}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <Select value={missingValueStrategy} onValueChange={(value: any) => setMissingValueStrategy(value)}>
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="remove">Remove rows</SelectItem>
+                      <SelectItem value="mean">Fill with mean</SelectItem>
+                      <SelectItem value="median">Fill with median</SelectItem>
+                      <SelectItem value="mode">Fill with mode</SelectItem>
+                      <SelectItem value="fill">Fill with value</SelectItem>
+                    </SelectContent>
+                  </Select>
+                  {missingValueStrategy === 'fill' && (
+                    <Input
+                      placeholder="Fill value"
+                      value={missingValueFill}
+                      onChange={(e) => setMissingValueFill(e.target.value)}
+                      className="sm:col-span-2 lg:col-span-1"
                     />
-                    <label className="text-sm">Trim leading and trailing whitespace</label>
-                  </div>
-
-                  <div className="space-y-2">
-                    <div className="flex items-center space-x-2">
-                      <Checkbox
-                        checked={cleaningRules.standardizeCase}
-                        onCheckedChange={(checked) => 
-                          setCleaningRules(prev => ({ ...prev, standardizeCase: !!checked }))
-                        }
-                      />
-                      <label className="text-sm">Standardize text case</label>
-                    </div>
-                    {cleaningRules.standardizeCase && (
-                      <Select value={cleaningRules.caseType} onValueChange={(value: any) => 
-                        setCleaningRules(prev => ({ ...prev, caseType: value }))
-                      }>
-                        <SelectTrigger className="w-48 ml-6">
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="lower">lowercase</SelectItem>
-                          <SelectItem value="upper">UPPERCASE</SelectItem>
-                          <SelectItem value="title">Title Case</SelectItem>
-                        </SelectContent>
-                      </Select>
-                    )}
-                  </div>
-
-                  <div className="flex items-center space-x-2">
-                    <Checkbox
-                      checked={cleaningRules.convertToNumeric}
-                      onCheckedChange={(checked) => 
-                        setCleaningRules(prev => ({ ...prev, convertToNumeric: !!checked }))
-                      }
-                    />
-                    <label className="text-sm">Convert string numbers to numeric</label>
-                  </div>
-
-                  <div className="space-y-2">
-                    <label className="text-sm font-medium">Handle null values</label>
-                    <Select value={cleaningRules.handleNulls} onValueChange={(value: any) => 
-                      setCleaningRules(prev => ({ ...prev, handleNulls: value }))
-                    }>
-                      <SelectTrigger className="w-48">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="keep">Keep as is</SelectItem>
-                        <SelectItem value="remove">Remove rows</SelectItem>
-                        <SelectItem value="fill">Fill with value</SelectItem>
-                      </SelectContent>
-                    </Select>
-                    {cleaningRules.handleNulls === 'fill' && (
-                      <Input
-                        placeholder="Fill value"
-                        value={cleaningRules.nullFillValue}
-                        onChange={(e) => 
-                          setCleaningRules(prev => ({ ...prev, nullFillValue: e.target.value }))
-                        }
-                        className="w-48"
-                      />
-                    )}
-                  </div>
+                  )}
                 </div>
-              </div>
-
-              <div className="flex items-center gap-2">
-                <Button onClick={cleanData} disabled={selectedColumns.length === 0}>
-                  <Wrench className="h-4 w-4 mr-2" />
-                  Clean Data
+                <Button onClick={addMissingValueOperation} className="mt-3 w-full sm:w-auto">
+                  <AlertTriangle className="h-4 w-4 mr-2" />
+                  Add Missing Values Fix
                 </Button>
-                <Button variant="outline" onClick={analyzeDataQuality}>
-                  <RotateCcw className="h-4 w-4 mr-2" />
-                  Re-analyze
+              </div>
+
+              {/* Duplicates */}
+              <div>
+                <h4 className="font-medium mb-3">Duplicates</h4>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 md:gap-4">
+                  <Select value={selectedColumn} onValueChange={setSelectedColumn}>
+                    <SelectTrigger>
+                      <SelectValue placeholder="Select column" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {columns.map(col => (
+                        <SelectItem key={col} value={col}>{col}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <Select value={duplicateStrategy} onValueChange={(value: any) => setDuplicateStrategy(value)}>
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="remove">Remove all duplicates</SelectItem>
+                      <SelectItem value="keep_first">Keep first occurrence</SelectItem>
+                      <SelectItem value="keep_last">Keep last occurrence</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <Button onClick={addDuplicateOperation} className="mt-3 w-full sm:w-auto">
+                  <Copy className="h-4 w-4 mr-2" />
+                  Add Duplicate Fix
+                </Button>
+              </div>
+
+              {/* Whitespace */}
+              <div>
+                <h4 className="font-medium mb-3">Whitespace</h4>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 md:gap-4">
+                  <Select value={selectedColumn} onValueChange={setSelectedColumn}>
+                    <SelectTrigger>
+                      <SelectValue placeholder="Select column" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {columns.map(col => (
+                        <SelectItem key={col} value={col}>{col}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <Select value={whitespaceStrategy} onValueChange={(value: any) => setWhitespaceStrategy(value)}>
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="trim">Trim whitespace</SelectItem>
+                      <SelectItem value="remove">Remove all whitespace</SelectItem>
+                      <SelectItem value="normalize">Normalize whitespace</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <Button onClick={addWhitespaceOperation} className="mt-3 w-full sm:w-auto">
+                  <Type className="h-4 w-4 mr-2" />
+                  Add Whitespace Fix
+                </Button>
+              </div>
+
+              {/* Case */}
+              <div>
+                <h4 className="font-medium mb-3">Case Formatting</h4>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 md:gap-4">
+                  <Select value={selectedColumn} onValueChange={setSelectedColumn}>
+                    <SelectTrigger>
+                      <SelectValue placeholder="Select column" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {columns.map(col => (
+                        <SelectItem key={col} value={col}>{col}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <Select value={caseStrategy} onValueChange={(value: any) => setCaseStrategy(value)}>
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="none">No change</SelectItem>
+                      <SelectItem value="lower">Lowercase</SelectItem>
+                      <SelectItem value="upper">Uppercase</SelectItem>
+                      <SelectItem value="title">Title Case</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <Button onClick={addCaseOperation} className="mt-3 w-full sm:w-auto">
+                  <Type className="h-4 w-4 mr-2" />
+                  Add Case Fix
+                </Button>
+              </div>
+
+              {/* Outliers */}
+              <div>
+                <h4 className="font-medium mb-3">Outliers</h4>
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 md:gap-4">
+                  <Select value={selectedColumn} onValueChange={setSelectedColumn}>
+                    <SelectTrigger>
+                      <SelectValue placeholder="Select column" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {columns.map(col => (
+                        <SelectItem key={col} value={col}>{col}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <Select value={outlierStrategy} onValueChange={(value: any) => setOutlierStrategy(value)}>
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="remove">Remove outliers</SelectItem>
+                      <SelectItem value="cap">Cap outliers</SelectItem>
+                      <SelectItem value="transform">Transform outliers</SelectItem>
+                    </SelectContent>
+                  </Select>
+                  <Select value={outlierMethod} onValueChange={(value: any) => setOutlierMethod(value)}>
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="iqr">IQR Method</SelectItem>
+                      <SelectItem value="zscore">Z-Score Method</SelectItem>
+                    </SelectContent>
+                  </Select>
+                  <Input
+                    type="number"
+                    placeholder="Threshold"
+                    value={outlierThreshold}
+                    onChange={(e) => setOutlierThreshold(Number(e.target.value))}
+                    step="0.1"
+                    min="0.1"
+                    max="5"
+                  />
+                </div>
+                <Button onClick={addOutlierOperation} className="mt-3 w-full sm:w-auto">
+                  <Zap className="h-4 w-4 mr-2" />
+                  Add Outlier Fix
                 </Button>
               </div>
             </div>
+
+            {/* Operations List */}
+            {operations.length > 0 && (
+              <div className="mt-6">
+                <h4 className="font-medium mb-3">Pending Operations ({operations.filter(op => !op.applied).length})</h4>
+                <div className="space-y-2 max-h-64 overflow-y-auto">
+                  {operations.map(operation => (
+                    <div key={operation.id} className="flex items-center justify-between p-3 border rounded-lg">
+                      <div className="flex items-center gap-3">
+                        <Wrench className="h-4 w-4" />
+                        <span className="text-sm">
+                          {operation.type.replace('_', ' ')} on {operation.column}
+                        </span>
+                        {operation.applied && (
+                          <Badge variant="secondary" className="text-xs">Applied</Badge>
+                        )}
+                      </div>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => removeOperation(operation.id)}
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </Button>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
           </TabsContent>
         </Tabs>
       </CardContent>

@@ -6,8 +6,15 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import { Badge } from '@/components/ui/badge';
-import { Upload, FileText, BarChart3, Settings, Download, Save, FolderOpen, Sparkles, Calculator, TrendingUp, AlertTriangle } from 'lucide-react';
+import { Upload, FileText, BarChart3, Settings, Download, Save, FolderOpen, Sparkles, Calculator, TrendingUp, AlertTriangle, Layers, Calendar, Target } from 'lucide-react';
 import { usePythonExecution } from '@/lib/pyodide-bridge';
+import { useToast } from '@/lib/toast';
+import { Skeleton } from '@/components/ui/skeleton';
+import { Progress } from '@/components/ui/progress';
+import { ErrorBoundary } from '@/components/ui/error-boundary';
+import { LoadingSpinner } from '@/components/ui/loading-spinner';
+import { FileUploader } from '@/components/FileUploader';
+import { MobileNav } from '@/components/MobileNav';
 import dynamic from 'next/dynamic';
 
 const ChartRenderer = dynamic(() => import('@/components/ChartRenderer').then(mod => ({ default: mod.ChartRenderer })), {
@@ -50,6 +57,21 @@ const DataCleaningPanel = dynamic(() => import('@/components/data/DataCleaningPa
   loading: () => <div className="h-64 flex items-center justify-center">Loading data cleaning...</div>
 });
 
+const TimeSeriesPanel = dynamic(() => import('@/components/analytics/TimeSeriesPanel').then(mod => ({ default: mod.TimeSeriesPanel })), {
+  ssr: false,
+  loading: () => <div className="h-64 flex items-center justify-center">Loading time series...</div>
+});
+
+const RegressionPanel = dynamic(() => import('@/components/analytics/RegressionPanel').then(mod => ({ default: mod.RegressionPanel })), {
+  ssr: false,
+  loading: () => <div className="h-64 flex items-center justify-center">Loading regression...</div>
+});
+
+const ClusteringPanel = dynamic(() => import('@/components/analytics/ClusteringPanel').then(mod => ({ default: mod.ClusteringPanel })), {
+  ssr: false,
+  loading: () => <div className="h-64 flex items-center justify-center">Loading clustering...</div>
+});
+
 export default function WorkspacePage() {
   const [isPythonReady, setIsPythonReady] = useState(false);
   const [currentData, setCurrentData] = useState<any[]>([]);
@@ -58,8 +80,11 @@ export default function WorkspacePage() {
   const [selectedChart, setSelectedChart] = useState<string>('bar');
   const [chartConfig, setChartConfig] = useState<any>({});
   const [chartRecommendations, setChartRecommendations] = useState<any[]>([]);
+  const [uploadProgress, setUploadProgress] = useState(0);
+  const [isUploading, setIsUploading] = useState(false);
   
   const { executePython, isInitialized, loading } = usePythonExecution();
+  const { toast } = useToast();
 
   useEffect(() => {
     if (isInitialized) {
@@ -68,8 +93,29 @@ export default function WorkspacePage() {
   }, [isInitialized]);
 
   const handleFileUpload = async (file: File) => {
+    setIsUploading(true);
+    setUploadProgress(0);
+    
     try {
+      toast({
+        title: "Uploading file...",
+        description: `Processing ${file.name}`,
+      });
+
+      // Simulate progress
+      const progressInterval = setInterval(() => {
+        setUploadProgress(prev => {
+          if (prev >= 90) {
+            clearInterval(progressInterval);
+            return prev;
+          }
+          return prev + 10;
+        });
+      }, 100);
+
       const text = await file.text();
+      setUploadProgress(50);
+      
       let data;
       
       if (file.type === 'text/csv' || file.name.endsWith('.csv')) {
@@ -90,8 +136,10 @@ export default function WorkspacePage() {
           });
           data.push(row);
         }
+        setUploadProgress(80);
       } else if (file.type === 'application/json' || file.name.endsWith('.json')) {
         data = JSON.parse(text);
+        setUploadProgress(80);
       } else {
         throw new Error('Unsupported file type');
       }
@@ -103,52 +151,36 @@ export default function WorkspacePage() {
         fileSize: file.size,
         fileName: file.name
       });
+      
+      setUploadProgress(100);
+      
+      toast({
+        title: "File uploaded successfully!",
+        description: `${data.length} rows loaded from ${file.name}`,
+      });
+      
       setActiveTab('data');
     } catch (error) {
       console.error('Error uploading file:', error);
+      toast({
+        title: "Upload failed",
+        description: error instanceof Error ? error.message : "Failed to process file",
+        variant: "destructive",
+      });
+    } finally {
+      setIsUploading(false);
+      setUploadProgress(0);
     }
   };
 
-  const FileUploader = () => (
+  const FileUploadSection = () => (
     <div className="space-y-6">
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <Upload className="h-5 w-5" />
-            Upload Data
-          </CardTitle>
-          <CardDescription>
-            Upload CSV, JSON, or Excel files to start analyzing your data
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          <div className="border-2 border-dashed border-muted-foreground/25 rounded-lg p-8 text-center">
-            <input
-              type="file"
-              accept=".csv,.json,.xlsx,.xls"
-              onChange={(e) => {
-                const file = e.target.files?.[0];
-                if (file) handleFileUpload(file);
-              }}
-              className="hidden"
-              id="file-upload"
-            />
-            <label
-              htmlFor="file-upload"
-              className="cursor-pointer flex flex-col items-center gap-4"
-            >
-              <Upload className="h-12 w-12 text-muted-foreground" />
-              <div>
-                <p className="text-lg font-medium">Click to upload or drag and drop</p>
-                <p className="text-sm text-muted-foreground">
-                  CSV, JSON, Excel files up to 10MB
-                </p>
-              </div>
-              <Button variant="outline">Choose File</Button>
-            </label>
-          </div>
-        </CardContent>
-      </Card>
+      <FileUploader
+        onFileUpload={handleFileUpload}
+        maxFiles={3}
+        maxSize={10 * 1024 * 1024} // 10MB
+        acceptedTypes={['.csv', '.json', '.xlsx', '.xls']}
+      />
 
       <Card>
         <CardHeader>
@@ -182,6 +214,10 @@ export default function WorkspacePage() {
                   fileName: 'Sample Sales Data'
                 });
                 setActiveTab('data');
+                toast({
+                  title: "Sample data loaded!",
+                  description: "Sales data with 6 rows loaded successfully",
+                });
               }}
             >
               <div className="font-medium">Sales Data</div>
@@ -208,6 +244,10 @@ export default function WorkspacePage() {
                   fileName: 'Sample Customer Data'
                 });
                 setActiveTab('data');
+                toast({
+                  title: "Sample data loaded!",
+                  description: "Customer data with 6 rows loaded successfully",
+                });
               }}
             >
               <div className="font-medium">Customer Data</div>
@@ -229,7 +269,7 @@ export default function WorkspacePage() {
             columns={dataInfo?.columns || []}
             onDataChange={(newData) => {
               setCurrentData(newData);
-              setDataInfo(prev => ({
+              setDataInfo((prev: any) => ({
                 ...prev,
                 rows: newData.length,
                 columns: Object.keys(newData[0] || {})
@@ -243,7 +283,7 @@ export default function WorkspacePage() {
             columns={dataInfo?.columns || []}
             onDataChange={(newData) => {
               setCurrentData(newData);
-              setDataInfo(prev => ({
+              setDataInfo((prev: any) => ({
                 ...prev,
                 rows: newData.length,
                 columns: Object.keys(newData[0] || {})
@@ -257,7 +297,7 @@ export default function WorkspacePage() {
             columns={dataInfo?.columns || []}
             onDataChange={(newData) => {
               setCurrentData(newData);
-              setDataInfo(prev => ({
+              setDataInfo((prev: any) => ({
                 ...prev,
                 rows: newData.length,
                 columns: Object.keys(newData[0] || {})
@@ -403,6 +443,24 @@ result
             data={currentData}
             dataColumns={dataInfo?.columns || []}
           />
+
+          {/* Clustering Analysis */}
+          <ClusteringPanel
+            data={currentData}
+            dataColumns={dataInfo?.columns || []}
+          />
+
+          {/* Time Series Analysis */}
+          <TimeSeriesPanel
+            data={currentData}
+            dataColumns={dataInfo?.columns || []}
+          />
+
+          {/* Regression Analysis */}
+          <RegressionPanel
+            data={currentData}
+            dataColumns={dataInfo?.columns || []}
+          />
         </>
       )}
       
@@ -410,59 +468,68 @@ result
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
             <BarChart3 className="h-5 w-5" />
-            Advanced Analytics
+            Analytics Overview
           </CardTitle>
           <CardDescription>
-            Get deeper insights from your data
+            All analytics features are now available above
           </CardDescription>
         </CardHeader>
         <CardContent>
           {currentData.length > 0 ? (
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-              <Button variant="outline" className="h-auto p-4 flex flex-col items-start" disabled>
-                <div className="flex items-center gap-2">
-                  <Calculator className="h-4 w-4" />
+              <div className="p-4 border rounded-lg">
+                <div className="flex items-center gap-2 mb-2">
+                  <Calculator className="h-4 w-4 text-green-600" />
                   <span className="font-medium">Basic Statistics</span>
                 </div>
                 <div className="text-sm text-muted-foreground">Mean, median, std dev</div>
-                <Badge variant="secondary" className="text-xs mt-1">Available Above</Badge>
-              </Button>
+                <Badge variant="default" className="text-xs mt-1">Available</Badge>
+              </div>
               
-              <Button variant="outline" className="h-auto p-4 flex flex-col items-start" disabled>
-                <div className="flex items-center gap-2">
-                  <TrendingUp className="h-4 w-4" />
+              <div className="p-4 border rounded-lg">
+                <div className="flex items-center gap-2 mb-2">
+                  <TrendingUp className="h-4 w-4 text-green-600" />
                   <span className="font-medium">Correlation Analysis</span>
                 </div>
                 <div className="text-sm text-muted-foreground">Find relationships</div>
-                <Badge variant="secondary" className="text-xs mt-1">Available Above</Badge>
-              </Button>
+                <Badge variant="default" className="text-xs mt-1">Available</Badge>
+              </div>
               
-              <Button variant="outline" className="h-auto p-4 flex flex-col items-start" disabled>
-                <div className="flex items-center gap-2">
-                  <AlertTriangle className="h-4 w-4" />
+              <div className="p-4 border rounded-lg">
+                <div className="flex items-center gap-2 mb-2">
+                  <AlertTriangle className="h-4 w-4 text-green-600" />
                   <span className="font-medium">Outlier Detection</span>
                 </div>
                 <div className="text-sm text-muted-foreground">Identify anomalies</div>
-                <Badge variant="secondary" className="text-xs mt-1">Available Above</Badge>
-              </Button>
+                <Badge variant="default" className="text-xs mt-1">Available</Badge>
+              </div>
               
-              <Button variant="outline" className="h-auto p-4 flex flex-col items-start">
-                <div className="font-medium">Clustering</div>
+              <div className="p-4 border rounded-lg">
+                <div className="flex items-center gap-2 mb-2">
+                  <Layers className="h-4 w-4 text-green-600" />
+                  <span className="font-medium">Clustering</span>
+                </div>
                 <div className="text-sm text-muted-foreground">Group similar data</div>
-                <Badge variant="outline" className="text-xs mt-1">Coming Soon</Badge>
-              </Button>
+                <Badge variant="default" className="text-xs mt-1">Available</Badge>
+              </div>
               
-              <Button variant="outline" className="h-auto p-4 flex flex-col items-start">
-                <div className="font-medium">Time Series</div>
+              <div className="p-4 border rounded-lg">
+                <div className="flex items-center gap-2 mb-2">
+                  <Calendar className="h-4 w-4 text-green-600" />
+                  <span className="font-medium">Time Series</span>
+                </div>
                 <div className="text-sm text-muted-foreground">Trend analysis</div>
-                <Badge variant="outline" className="text-xs mt-1">Coming Soon</Badge>
-              </Button>
+                <Badge variant="default" className="text-xs mt-1">Available</Badge>
+              </div>
               
-              <Button variant="outline" className="h-auto p-4 flex flex-col items-start">
-                <div className="font-medium">Regression</div>
+              <div className="p-4 border rounded-lg">
+                <div className="flex items-center gap-2 mb-2">
+                  <Target className="h-4 w-4 text-green-600" />
+                  <span className="font-medium">Regression</span>
+                </div>
                 <div className="text-sm text-muted-foreground">Predict relationships</div>
-                <Badge variant="outline" className="text-xs mt-1">Coming Soon</Badge>
-              </Button>
+                <Badge variant="default" className="text-xs mt-1">Available</Badge>
+              </div>
             </div>
           ) : (
             <div className="text-center py-8 text-muted-foreground">
@@ -476,17 +543,45 @@ result
 
   if (!isPythonReady) {
     return (
-      <div className="min-h-screen flex items-center justify-center">
+      <div className="min-h-screen flex items-center justify-center bg-background">
         <Card className="w-full max-w-md">
-          <CardContent className="pt-6">
+          <CardHeader>
+            <CardTitle className="text-center">Initializing Datuum 2.0</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-6">
             <div className="text-center space-y-4">
-              <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary mx-auto"></div>
+              <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary mx-auto"></div>
               <div>
-                <h3 className="text-lg font-medium">Initializing Python Engine</h3>
+                <h3 className="text-lg font-medium">Loading Python Engine</h3>
                 <p className="text-sm text-muted-foreground">
-                  Loading Pyodide and required packages...
+                  Initializing Pyodide and data science libraries...
                 </p>
               </div>
+            </div>
+            
+            <div className="space-y-3">
+              <div className="flex items-center gap-3">
+                <Skeleton className="h-4 w-4 rounded-full" />
+                <span className="text-sm">Loading NumPy</span>
+              </div>
+              <div className="flex items-center gap-3">
+                <Skeleton className="h-4 w-4 rounded-full" />
+                <span className="text-sm">Loading Pandas</span>
+              </div>
+              <div className="flex items-center gap-3">
+                <Skeleton className="h-4 w-4 rounded-full" />
+                <span className="text-sm">Loading Scikit-learn</span>
+              </div>
+              <div className="flex items-center gap-3">
+                <Skeleton className="h-4 w-4 rounded-full" />
+                <span className="text-sm">Loading Plotly</span>
+              </div>
+            </div>
+            
+            <div className="text-center">
+              <p className="text-xs text-muted-foreground">
+                This may take a moment on first load
+              </p>
             </div>
           </CardContent>
         </Card>
@@ -495,82 +590,98 @@ result
   }
 
   return (
-    <div className="min-h-screen bg-background">
-      {/* Header */}
-      <header className="border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
-        <div className="container flex h-14 items-center">
-          <div className="mr-4 flex">
-            <a className="mr-6 flex items-center space-x-2" href="/">
-              <span className="font-bold">Datuum 2.0</span>
-            </a>
-          </div>
-          
-          <div className="flex flex-1 items-center justify-between space-x-2 md:justify-end">
-            <div className="w-full flex-1 md:w-auto md:flex-none">
-              {/* Search or other header content */}
-            </div>
-            
-            <nav className="flex items-center space-x-2">
-              <Dialog>
-                <DialogTrigger asChild>
-                  <Button variant="outline" size="sm">
-                    <FolderOpen className="h-4 w-4 mr-2" />
-                    Open
-                  </Button>
-                </DialogTrigger>
-                <DialogContent>
-                  <DialogHeader>
-                    <DialogTitle>Open Project</DialogTitle>
-                    <DialogDescription>
-                      Load a saved project from your local storage.
-                    </DialogDescription>
-                  </DialogHeader>
-                  <div className="text-center py-4 text-muted-foreground">
-                    Project management coming soon...
-                  </div>
-                </DialogContent>
-              </Dialog>
+    <ErrorBoundary>
+      <div className="min-h-screen bg-background">
+        {/* Header */}
+        <header className="border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
+          <div className="container mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
+            <div className="flex h-14 items-center justify-between">
+              <div className="flex items-center">
+                <a className="flex items-center space-x-2" href="/">
+                  <span className="font-bold text-lg">Datuum 2.0</span>
+                </a>
+              </div>
               
-              <Button variant="outline" size="sm">
-                <Save className="h-4 w-4 mr-2" />
-                Save
-              </Button>
-              
-              <Button variant="outline" size="sm">
-                <Download className="h-4 w-4 mr-2" />
-                Export
-              </Button>
-              
-              <Button variant="outline" size="sm">
-                <Settings className="h-4 w-4" />
-              </Button>
-            </nav>
-          </div>
-        </div>
-      </header>
+              {/* Desktop Navigation */}
+              <nav className="hidden md:flex items-center space-x-2">
+                <Dialog>
+                  <DialogTrigger asChild>
+                    <Button variant="outline" size="sm">
+                      <FolderOpen className="h-4 w-4 mr-2" />
+                      Open
+                    </Button>
+                  </DialogTrigger>
+                  <DialogContent>
+                    <DialogHeader>
+                      <DialogTitle>Open Project</DialogTitle>
+                      <DialogDescription>
+                        Load a saved project from your local storage.
+                      </DialogDescription>
+                    </DialogHeader>
+                    <div className="text-center py-4 text-muted-foreground">
+                      Project management coming soon...
+                    </div>
+                  </DialogContent>
+                </Dialog>
+                
+                <Button variant="outline" size="sm">
+                  <Save className="h-4 w-4 mr-2" />
+                  Save
+                </Button>
+                
+                <Button variant="outline" size="sm">
+                  <Download className="h-4 w-4 mr-2" />
+                  Export
+                </Button>
+                
+                <Button variant="outline" size="sm">
+                  <Settings className="h-4 w-4" />
+                </Button>
+              </nav>
 
-      {/* Main Content */}
-      <div className="container py-6">
-        <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-6">
-          <TabsList className="grid w-full grid-cols-3">
-            <TabsTrigger value="upload">Upload</TabsTrigger>
-            <TabsTrigger value="data">Data</TabsTrigger>
-            <TabsTrigger value="analytics">Analytics</TabsTrigger>
-          </TabsList>
-          
-          <TabsContent value="upload">
-            <FileUploader />
-          </TabsContent>
-          
-          <TabsContent value="data">
-            <DataPreview />
-          </TabsContent>
-          
-          <TabsContent value="analytics">
-            <AnalyticsPanel />
-          </TabsContent>
-        </Tabs>
+              {/* Mobile Navigation */}
+              <div className="md:hidden">
+                <MobileNav />
+              </div>
+            </div>
+          </div>
+        </header>
+
+        {/* Main Content */}
+        <div className="container mx-auto max-w-7xl px-4 sm:px-6 lg:px-8 py-4 md:py-6">
+          <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-4 md:space-y-6">
+            <TabsList className="grid w-full grid-cols-3 h-auto min-h-[44px]">
+              <TabsTrigger value="upload" className="text-xs md:text-sm py-2 px-3">
+                Upload
+              </TabsTrigger>
+              <TabsTrigger value="data" className="text-xs md:text-sm py-2 px-3">
+                Data
+              </TabsTrigger>
+              <TabsTrigger value="analytics" className="text-xs md:text-sm py-2 px-3">
+                Analytics
+              </TabsTrigger>
+            </TabsList>
+            
+            <TabsContent value="upload">
+              <ErrorBoundary>
+                <FileUploadSection />
+              </ErrorBoundary>
+            </TabsContent>
+            
+            <TabsContent value="data">
+              <ErrorBoundary>
+                <DataPreview />
+              </ErrorBoundary>
+            </TabsContent>
+            
+            <TabsContent value="analytics">
+              <ErrorBoundary>
+                <AnalyticsPanel />
+              </ErrorBoundary>
+            </TabsContent>
+          </Tabs>
+        </div>
       </div>
-    </div>
+    </ErrorBoundary>
   );
 }

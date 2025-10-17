@@ -1,632 +1,617 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { 
+  Settings, 
   Plus, 
-  Minus, 
-  Edit3, 
   Trash2, 
-  ArrowUp, 
-  ArrowDown,
+  Edit, 
+  ArrowRight,
+  Calculator,
   Filter,
   SortAsc,
   Copy,
-  RotateCcw,
-  CheckCircle,
-  AlertTriangle,
-  Info
+  RotateCcw
 } from 'lucide-react';
+import { useToast } from '@/lib/toast';
 
 interface DataTransformPanelProps {
   data: any[];
   columns: string[];
-  onDataChange: (newData: any[]) => void;
+  onDataChange?: (newData: any[]) => void;
   className?: string;
 }
 
 interface TransformOperation {
   id: string;
-  type: 'add_row' | 'add_column' | 'delete_row' | 'delete_column' | 'rename_column' | 'change_type' | 'fill_missing' | 'remove_duplicates' | 'filter' | 'sort';
-  params: Record<string, any>;
-  timestamp: number;
+  type: 'add_column' | 'delete_column' | 'rename_column' | 'change_type' | 'sort' | 'filter' | 'calculate';
+  config: any;
+  applied: boolean;
 }
 
 export function DataTransformPanel({ data, columns, onDataChange, className }: DataTransformPanelProps) {
   const [operations, setOperations] = useState<TransformOperation[]>([]);
   const [newColumnName, setNewColumnName] = useState('');
-  const [newColumnType, setNewColumnType] = useState('string');
-  const [newColumnDefault, setNewColumnDefault] = useState('');
+  const [newColumnType, setNewColumnType] = useState<'string' | 'number' | 'boolean'>('string');
+  const [newColumnValue, setNewColumnValue] = useState('');
   const [renameColumn, setRenameColumn] = useState('');
-  const [renameTo, setRenameTo] = useState('');
-  const [fillMissingColumn, setFillMissingColumn] = useState('');
-  const [fillMissingMethod, setFillMissingMethod] = useState('mean');
-  const [filterColumn, setFilterColumn] = useState('');
-  const [filterOperator, setFilterOperator] = useState('equals');
-  const [filterValue, setFilterValue] = useState('');
-  const [sortColumns, setSortColumns] = useState<string[]>([]);
+  const [newColumnNameValue, setNewColumnNameValue] = useState('');
+  const [sortColumn, setSortColumn] = useState('');
   const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('asc');
+  const [filterColumn, setFilterColumn] = useState('');
+  const [filterValue, setFilterValue] = useState('');
+  const [filterType, setFilterType] = useState<'contains' | 'equals' | 'greater' | 'less'>('contains');
+  const [calculateFormula, setCalculateFormula] = useState('');
+  const [calculateColumnName, setCalculateColumnName] = useState('');
+  const [activeTab, setActiveTab] = useState('add');
 
-  const addOperation = (operation: TransformOperation) => {
-    setOperations(prev => [...prev, operation]);
+  const { toast } = useToast();
+
+  const addColumn = () => {
+    if (!newColumnName.trim()) {
+      toast({
+        title: "Error",
+        description: "Please enter a column name",
+        variant: "destructive"
+      });
+      return;
+    }
+
+    if (columns.includes(newColumnName)) {
+      toast({
+        title: "Error",
+        description: "Column already exists",
+        variant: "destructive"
+      });
+      return;
+    }
+
+    const operation: TransformOperation = {
+      id: Date.now().toString(),
+      type: 'add_column',
+      config: {
+        name: newColumnName,
+        type: newColumnType,
+        value: newColumnValue
+      },
+      applied: false
+    };
+
+    setOperations([...operations, operation]);
+    setNewColumnName('');
+    setNewColumnValue('');
   };
 
-  const executeOperation = (operation: TransformOperation) => {
+  const deleteColumn = (columnName: string) => {
+    const operation: TransformOperation = {
+      id: Date.now().toString(),
+      type: 'delete_column',
+      config: { name: columnName },
+      applied: false
+    };
+
+    setOperations([...operations, operation]);
+  };
+
+  const renameColumnOperation = () => {
+    if (!renameColumn || !newColumnNameValue.trim()) {
+      toast({
+        title: "Error",
+        description: "Please select a column and enter a new name",
+        variant: "destructive"
+      });
+      return;
+    }
+
+    if (columns.includes(newColumnNameValue) && renameColumn !== newColumnNameValue) {
+      toast({
+        title: "Error",
+        description: "Column name already exists",
+        variant: "destructive"
+      });
+      return;
+    }
+
+    const operation: TransformOperation = {
+      id: Date.now().toString(),
+      type: 'rename_column',
+      config: {
+        oldName: renameColumn,
+        newName: newColumnNameValue
+      },
+      applied: false
+    };
+
+    setOperations([...operations, operation]);
+    setRenameColumn('');
+    setNewColumnNameValue('');
+  };
+
+  const addSortOperation = () => {
+    if (!sortColumn) {
+      toast({
+        title: "Error",
+        description: "Please select a column to sort",
+        variant: "destructive"
+      });
+      return;
+    }
+
+    const operation: TransformOperation = {
+      id: Date.now().toString(),
+      type: 'sort',
+      config: {
+        column: sortColumn,
+        direction: sortDirection
+      },
+      applied: false
+    };
+
+    setOperations([...operations, operation]);
+    setSortColumn('');
+  };
+
+  const addFilterOperation = () => {
+    if (!filterColumn || !filterValue.trim()) {
+      toast({
+        title: "Error",
+        description: "Please select a column and enter a filter value",
+        variant: "destructive"
+      });
+      return;
+    }
+
+    const operation: TransformOperation = {
+      id: Date.now().toString(),
+      type: 'filter',
+      config: {
+        column: filterColumn,
+        value: filterValue,
+        type: filterType
+      },
+      applied: false
+    };
+
+    setOperations([...operations, operation]);
+    setFilterColumn('');
+    setFilterValue('');
+  };
+
+  const addCalculateOperation = () => {
+    if (!calculateFormula.trim() || !calculateColumnName.trim()) {
+      toast({
+        title: "Error",
+        description: "Please enter a formula and column name",
+        variant: "destructive"
+      });
+      return;
+    }
+
+    const operation: TransformOperation = {
+      id: Date.now().toString(),
+      type: 'calculate',
+      config: {
+        formula: calculateFormula,
+        columnName: calculateColumnName
+      },
+      applied: false
+    };
+
+    setOperations([...operations, operation]);
+    setCalculateFormula('');
+    setCalculateColumnName('');
+  };
+
+  const applyOperations = () => {
     let newData = [...data];
     let newColumns = [...columns];
 
-    switch (operation.type) {
-      case 'add_row':
-        const newRow = columns.reduce((acc, col) => {
-          acc[col] = '';
-          return acc;
-        }, {} as any);
-        newData = [...newData, newRow];
-        break;
+    operations.forEach(operation => {
+      if (operation.applied) return;
 
-      case 'add_column':
-        newColumns.push(operation.params.name);
-        newData = newData.map(row => ({
-          ...row,
-          [operation.params.name]: operation.params.defaultValue || ''
-        }));
-        break;
+      switch (operation.type) {
+        case 'add_column':
+          const { name, type, value } = operation.config;
+          newData = newData.map(row => ({
+            ...row,
+            [name]: type === 'number' ? Number(value) : 
+                   type === 'boolean' ? Boolean(value) : value
+          }));
+          newColumns.push(name);
+          break;
 
-      case 'delete_column':
-        newColumns = newColumns.filter(col => col !== operation.params.column);
-        newData = newData.map(row => {
-          const { [operation.params.column]: removed, ...rest } = row;
-          return rest;
-        });
-        break;
+        case 'delete_column':
+          const columnToDelete = operation.config.name;
+          newData = newData.map(row => {
+            const newRow = { ...row };
+            delete newRow[columnToDelete];
+            return newRow;
+          });
+          newColumns = newColumns.filter(col => col !== columnToDelete);
+          break;
 
-      case 'rename_column':
-        newColumns = newColumns.map(col => 
-          col === operation.params.oldName ? operation.params.newName : col
-        );
-        newData = newData.map(row => {
-          const { [operation.params.oldName]: value, ...rest } = row;
-          return { ...rest, [operation.params.newName]: value };
-        });
-        break;
+        case 'rename_column':
+          const { oldName, newName } = operation.config;
+          newData = newData.map(row => {
+            const newRow = { ...row };
+            newRow[newName] = newRow[oldName];
+            delete newRow[oldName];
+            return newRow;
+          });
+          newColumns = newColumns.map(col => col === oldName ? newName : col);
+          break;
 
-      case 'fill_missing':
-        newData = newData.map(row => {
-          if (row[operation.params.column] === null || row[operation.params.column] === undefined || row[operation.params.column] === '') {
-            let fillValue = operation.params.value;
+        case 'sort':
+          const { column, direction } = operation.config;
+          newData.sort((a, b) => {
+            const aVal = a[column];
+            const bVal = b[column];
             
-            if (operation.params.method === 'mean') {
-              const numericValues = newData
-                .map(r => r[operation.params.column])
-                .filter(v => typeof v === 'number' && !isNaN(v));
-              fillValue = numericValues.length > 0 ? 
-                numericValues.reduce((a, b) => a + b, 0) / numericValues.length : '';
-            } else if (operation.params.method === 'median') {
-              const numericValues = newData
-                .map(r => r[operation.params.column])
-                .filter(v => typeof v === 'number' && !isNaN(v))
-                .sort((a, b) => a - b);
-              fillValue = numericValues.length > 0 ? 
-                numericValues[Math.floor(numericValues.length / 2)] : '';
-            } else if (operation.params.method === 'mode') {
-              const values = newData
-                .map(r => r[operation.params.column])
-                .filter(v => v !== null && v !== undefined && v !== '');
-              const counts = values.reduce((acc, val) => {
-                acc[val] = (acc[val] || 0) + 1;
-                return acc;
-              }, {} as Record<string, number>);
-              fillValue = Object.keys(counts).reduce((a, b) => 
-                counts[a] > counts[b] ? a : b, Object.keys(counts)[0] || ''
-              );
+            if (aVal == null && bVal == null) return 0;
+            if (aVal == null) return direction === 'asc' ? 1 : -1;
+            if (bVal == null) return direction === 'asc' ? -1 : 1;
+            
+            if (typeof aVal === 'number' && typeof bVal === 'number') {
+              return direction === 'asc' ? aVal - bVal : bVal - aVal;
             }
             
-            return { ...row, [operation.params.column]: fillValue };
-          }
-          return row;
-        });
-        break;
-
-      case 'remove_duplicates':
-        const seen = new Set();
-        newData = newData.filter(row => {
-          const key = JSON.stringify(row);
-          if (seen.has(key)) {
-            return false;
-          }
-          seen.add(key);
-          return true;
-        });
-        break;
-
-      case 'filter':
-        newData = newData.filter(row => {
-          const value = row[operation.params.column];
-          const filterValue = operation.params.value;
-
-          switch (operation.params.operator) {
-            case 'equals':
-              return String(value) === String(filterValue);
-            case 'not_equals':
-              return String(value) !== String(filterValue);
-            case 'contains':
-              return String(value).toLowerCase().includes(String(filterValue).toLowerCase());
-            case 'greater_than':
-              return Number(value) > Number(filterValue);
-            case 'less_than':
-              return Number(value) < Number(filterValue);
-            case 'is_empty':
-              return value === null || value === undefined || value === '';
-            case 'is_not_empty':
-              return value !== null && value !== undefined && value !== '';
-            default:
-              return true;
-          }
-        });
-        break;
-
-      case 'sort':
-        newData = [...newData].sort((a, b) => {
-          for (const col of operation.params.columns) {
-            const aVal = a[col];
-            const bVal = b[col];
+            const aStr = String(aVal).toLowerCase();
+            const bStr = String(bVal).toLowerCase();
             
-            if (aVal < bVal) return operation.params.direction === 'asc' ? -1 : 1;
-            if (aVal > bVal) return operation.params.direction === 'asc' ? 1 : -1;
+            if (aStr < bStr) return direction === 'asc' ? -1 : 1;
+            if (aStr > bStr) return direction === 'asc' ? 1 : -1;
+            return 0;
+          });
+          break;
+
+        case 'filter':
+          const { column: filterCol, value: filterVal, type: filterTypeVal } = operation.config;
+          newData = newData.filter(row => {
+            const value = String(row[filterCol] || '').toLowerCase();
+            const filterValue = filterVal.toLowerCase();
+
+            switch (filterTypeVal) {
+              case 'contains':
+                return value.includes(filterValue);
+              case 'equals':
+                return value === filterValue;
+              case 'greater':
+                return Number(value) > Number(filterValue);
+              case 'less':
+                return Number(value) < Number(filterValue);
+              default:
+                return true;
+            }
+          });
+          break;
+
+        case 'calculate':
+          // Simple formula evaluation (basic operations only for safety)
+          const { formula, columnName: calcColName } = operation.config;
+          try {
+            newData = newData.map(row => {
+              let evalFormula = formula;
+              
+              // Replace column references with actual values
+              columns.forEach(col => {
+                const value = row[col];
+                const numValue = typeof value === 'number' ? value : 0;
+                evalFormula = evalFormula.replace(new RegExp(`\\b${col}\\b`, 'g'), numValue.toString());
+              });
+              
+              // Simple evaluation (only basic math operations)
+              const result = eval(evalFormula.replace(/[^0-9+\-*/.() ]/g, ''));
+              return { ...row, [calcColName]: isNaN(result) ? 0 : result };
+            });
+            newColumns.push(calcColName);
+          } catch (error) {
+            toast({
+              title: "Error",
+              description: "Invalid formula",
+              variant: "destructive"
+            });
+            return;
           }
-          return 0;
-        });
-        break;
-    }
+          break;
+      }
+    });
 
-    onDataChange(newData);
-    addOperation(operation);
-  };
-
-  const addRow = () => {
-    executeOperation({
-      id: Date.now().toString(),
-      type: 'add_row',
-      params: {},
-      timestamp: Date.now()
+    // Mark operations as applied
+    setOperations(operations.map(op => ({ ...op, applied: true })));
+    
+    onDataChange?.(newData);
+    
+    toast({
+      title: "Success",
+      description: `Applied ${operations.filter(op => !op.applied).length} operations`,
     });
   };
 
-  const addColumn = () => {
-    if (!newColumnName.trim()) return;
-    
-    executeOperation({
-      id: Date.now().toString(),
-      type: 'add_column',
-      params: {
-        name: newColumnName,
-        type: newColumnType,
-        defaultValue: newColumnDefault
-      },
-      timestamp: Date.now()
-    });
-    
-    setNewColumnName('');
-    setNewColumnDefault('');
+  const removeOperation = (id: string) => {
+    setOperations(operations.filter(op => op.id !== id));
   };
 
-  const deleteColumn = (column: string) => {
-    executeOperation({
-      id: Date.now().toString(),
-      type: 'delete_column',
-      params: { column },
-      timestamp: Date.now()
-    });
+  const clearOperations = () => {
+    setOperations([]);
   };
 
-  const handleRenameColumn = () => {
-    if (!renameColumn || !renameTo.trim()) return;
-    
-    executeOperation({
-      id: Date.now().toString(),
-      type: 'rename_column',
-      params: {
-        oldName: renameColumn,
-        newName: renameTo
-      },
-      timestamp: Date.now()
-    });
-    
-    setRenameColumn('');
-    setRenameTo('');
-  };
-
-  const fillMissingValues = () => {
-    if (!fillMissingColumn) return;
-    
-    executeOperation({
-      id: Date.now().toString(),
-      type: 'fill_missing',
-      params: {
-        column: fillMissingColumn,
-        method: fillMissingMethod,
-        value: newColumnDefault
-      },
-      timestamp: Date.now()
-    });
-  };
-
-  const removeDuplicates = () => {
-    executeOperation({
-      id: Date.now().toString(),
-      type: 'remove_duplicates',
-      params: {},
-      timestamp: Date.now()
-    });
-  };
-
-  const applyFilter = () => {
-    if (!filterColumn || !filterValue) return;
-    
-    executeOperation({
-      id: Date.now().toString(),
-      type: 'filter',
-      params: {
-        column: filterColumn,
-        operator: filterOperator,
-        value: filterValue
-      },
-      timestamp: Date.now()
-    });
-  };
-
-  const applySort = () => {
-    if (sortColumns.length === 0) return;
-    
-    executeOperation({
-      id: Date.now().toString(),
-      type: 'sort',
-      params: {
-        columns: sortColumns,
-        direction: sortDirection
-      },
-      timestamp: Date.now()
-    });
-  };
-
-  const undoLastOperation = () => {
-    if (operations.length > 0) {
-      setOperations(prev => prev.slice(0, -1));
-      // In a real implementation, you'd revert to the previous state
-    }
-  };
-
-  const getColumnStats = (column: string) => {
-    const values = data.map(row => row[column]).filter(v => v !== null && v !== undefined && v !== '');
-    const numericValues = values.filter(v => typeof v === 'number' && !isNaN(v));
-    
-    return {
-      total: data.length,
-      nonNull: values.length,
-      nullCount: data.length - values.length,
-      isNumeric: numericValues.length > 0,
-      uniqueValues: new Set(values).size
+  const renderOperation = (operation: TransformOperation) => {
+    const getOperationIcon = (type: string) => {
+      switch (type) {
+        case 'add_column': return <Plus className="h-4 w-4" />;
+        case 'delete_column': return <Trash2 className="h-4 w-4" />;
+        case 'rename_column': return <Edit className="h-4 w-4" />;
+        case 'sort': return <SortAsc className="h-4 w-4" />;
+        case 'filter': return <Filter className="h-4 w-4" />;
+        case 'calculate': return <Calculator className="h-4 w-4" />;
+        default: return <Settings className="h-4 w-4" />;
+      }
     };
+
+    const getOperationDescription = (operation: TransformOperation) => {
+      switch (operation.type) {
+        case 'add_column':
+          return `Add column "${operation.config.name}" (${operation.config.type})`;
+        case 'delete_column':
+          return `Delete column "${operation.config.name}"`;
+        case 'rename_column':
+          return `Rename "${operation.config.oldName}" to "${operation.config.newName}"`;
+        case 'sort':
+          return `Sort by "${operation.config.column}" (${operation.config.direction})`;
+        case 'filter':
+          return `Filter "${operation.config.column}" ${operation.config.type} "${operation.config.value}"`;
+        case 'calculate':
+          return `Calculate "${operation.config.columnName}" = ${operation.config.formula}`;
+        default:
+          return 'Unknown operation';
+      }
+    };
+
+    return (
+      <div key={operation.id} className="flex items-center justify-between p-3 border rounded-lg">
+        <div className="flex items-center gap-3">
+          {getOperationIcon(operation.type)}
+          <span className="text-sm">{getOperationDescription(operation)}</span>
+          {operation.applied && (
+            <Badge variant="secondary" className="text-xs">Applied</Badge>
+          )}
+        </div>
+        <Button
+          variant="ghost"
+          size="sm"
+          onClick={() => removeOperation(operation.id)}
+        >
+          <Trash2 className="h-4 w-4" />
+        </Button>
+      </div>
+    );
   };
 
   return (
     <Card className={className}>
       <CardHeader>
-        <CardTitle className="flex items-center gap-2">
-          <Edit3 className="h-5 w-5" />
-          Data Transformations
-        </CardTitle>
-        <CardDescription>
-          Add, remove, and modify your data structure
-        </CardDescription>
+        <div className="flex items-center justify-between">
+          <div>
+            <CardTitle className="flex items-center gap-2">
+              <Settings className="h-5 w-5" />
+              Data Transform
+            </CardTitle>
+            <CardDescription>
+              Add, delete, rename columns and apply transformations
+            </CardDescription>
+          </div>
+          <div className="flex items-center gap-2">
+            <Button variant="outline" size="sm" onClick={clearOperations}>
+              <RotateCcw className="h-4 w-4 mr-2" />
+              Clear All
+            </Button>
+            <Button 
+              onClick={applyOperations}
+              disabled={operations.length === 0 || operations.every(op => op.applied)}
+            >
+              <ArrowRight className="h-4 w-4 mr-2" />
+              Apply Operations
+            </Button>
+          </div>
+        </div>
       </CardHeader>
       
-      <CardContent>
-        <Tabs defaultValue="structure" className="space-y-4">
-          <TabsList className="grid w-full grid-cols-4">
-            <TabsTrigger value="structure">Structure</TabsTrigger>
-            <TabsTrigger value="clean">Clean</TabsTrigger>
-            <TabsTrigger value="filter">Filter</TabsTrigger>
-            <TabsTrigger value="sort">Sort</TabsTrigger>
+      <CardContent className="p-4 md:p-6">
+        <Tabs value={activeTab} onValueChange={setActiveTab}>
+          <TabsList className="grid w-full grid-cols-2 sm:grid-cols-4">
+            <TabsTrigger value="add" className="text-xs sm:text-sm">Add Column</TabsTrigger>
+            <TabsTrigger value="modify" className="text-xs sm:text-sm">Modify</TabsTrigger>
+            <TabsTrigger value="sort" className="text-xs sm:text-sm">Sort & Filter</TabsTrigger>
+            <TabsTrigger value="calculate" className="text-xs sm:text-sm">Calculate</TabsTrigger>
           </TabsList>
 
-          <TabsContent value="structure" className="space-y-6">
-            {/* Add Row */}
-            <div className="space-y-2">
-              <h4 className="font-medium">Add Row</h4>
-              <Button onClick={addRow} variant="outline" className="w-full">
-                <Plus className="h-4 w-4 mr-2" />
-                Add Empty Row
-              </Button>
+          <TabsContent value="add" className="space-y-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 md:gap-4">
+              <Input
+                placeholder="Column name"
+                value={newColumnName}
+                onChange={(e) => setNewColumnName(e.target.value)}
+              />
+              <Select value={newColumnType} onValueChange={(value: any) => setNewColumnType(value)}>
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="string">String</SelectItem>
+                  <SelectItem value="number">Number</SelectItem>
+                  <SelectItem value="boolean">Boolean</SelectItem>
+                </SelectContent>
+              </Select>
+              <Input
+                placeholder="Default value"
+                value={newColumnValue}
+                onChange={(e) => setNewColumnValue(e.target.value)}
+                className="sm:col-span-2 lg:col-span-1"
+              />
             </div>
-
-            {/* Add Column */}
-            <div className="space-y-4">
-              <h4 className="font-medium">Add Column</h4>
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                <Input
-                  placeholder="Column name"
-                  value={newColumnName}
-                  onChange={(e) => setNewColumnName(e.target.value)}
-                />
-                <Select value={newColumnType} onValueChange={setNewColumnType}>
-                  <SelectTrigger>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="string">Text</SelectItem>
-                    <SelectItem value="number">Number</SelectItem>
-                    <SelectItem value="boolean">Boolean</SelectItem>
-                    <SelectItem value="date">Date</SelectItem>
-                  </SelectContent>
-                </Select>
-                <Input
-                  placeholder="Default value"
-                  value={newColumnDefault}
-                  onChange={(e) => setNewColumnDefault(e.target.value)}
-                />
-              </div>
-              <Button onClick={addColumn} disabled={!newColumnName.trim()}>
-                <Plus className="h-4 w-4 mr-2" />
-                Add Column
-              </Button>
-            </div>
-
-            {/* Rename Column */}
-            <div className="space-y-4">
-              <h4 className="font-medium">Rename Column</h4>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <Select value={renameColumn} onValueChange={setRenameColumn}>
-                  <SelectTrigger>
-                    <SelectValue placeholder="Select column" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {columns.map(col => (
-                      <SelectItem key={col} value={col}>{col}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-                <Input
-                  placeholder="New name"
-                  value={renameTo}
-                  onChange={(e) => setRenameTo(e.target.value)}
-                />
-              </div>
-              <Button onClick={handleRenameColumn} disabled={!renameColumn || !renameTo.trim()}>
-                <Edit3 className="h-4 w-4 mr-2" />
-                Rename Column
-              </Button>
-            </div>
-
-            {/* Delete Column */}
-            <div className="space-y-4">
-              <h4 className="font-medium">Delete Column</h4>
-              <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
-                {columns.map(col => (
-                  <Button
-                    key={col}
-                    variant="outline"
-                    size="sm"
-                    onClick={() => deleteColumn(col)}
-                    className="justify-between"
-                  >
-                    {col}
-                    <Minus className="h-4 w-4" />
-                  </Button>
-                ))}
-              </div>
-            </div>
+            <Button onClick={addColumn} className="w-full sm:w-auto">
+              <Plus className="h-4 w-4 mr-2" />
+              Add Column
+            </Button>
           </TabsContent>
 
-          <TabsContent value="clean" className="space-y-6">
-            {/* Fill Missing Values */}
+          <TabsContent value="modify" className="space-y-4">
             <div className="space-y-4">
-              <h4 className="font-medium">Fill Missing Values</h4>
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                <Select value={fillMissingColumn} onValueChange={setFillMissingColumn}>
-                  <SelectTrigger>
-                    <SelectValue placeholder="Select column" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {columns.map(col => (
-                      <SelectItem key={col} value={col}>{col}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-                <Select value={fillMissingMethod} onValueChange={setFillMissingMethod}>
-                  <SelectTrigger>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="mean">Mean</SelectItem>
-                    <SelectItem value="median">Median</SelectItem>
-                    <SelectItem value="mode">Mode</SelectItem>
-                    <SelectItem value="custom">Custom Value</SelectItem>
-                  </SelectContent>
-                </Select>
-                {fillMissingMethod === 'custom' && (
+              <div>
+                <h4 className="font-medium mb-2">Rename Column</h4>
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 md:gap-4">
+                  <Select value={renameColumn} onValueChange={setRenameColumn}>
+                    <SelectTrigger>
+                      <SelectValue placeholder="Select column" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {columns.map(col => (
+                        <SelectItem key={col} value={col}>{col}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
                   <Input
-                    placeholder="Custom value"
-                    value={newColumnDefault}
-                    onChange={(e) => setNewColumnDefault(e.target.value)}
+                    placeholder="New name"
+                    value={newColumnNameValue}
+                    onChange={(e) => setNewColumnNameValue(e.target.value)}
                   />
-                )}
-              </div>
-              <Button onClick={fillMissingValues} disabled={!fillMissingColumn}>
-                <CheckCircle className="h-4 w-4 mr-2" />
-                Fill Missing Values
-              </Button>
-            </div>
-
-            {/* Remove Duplicates */}
-            <div className="space-y-2">
-              <h4 className="font-medium">Remove Duplicates</h4>
-              <Button onClick={removeDuplicates} variant="outline" className="w-full">
-                <Trash2 className="h-4 w-4 mr-2" />
-                Remove Duplicate Rows
-              </Button>
-            </div>
-
-            {/* Column Statistics */}
-            <div className="space-y-4">
-              <h4 className="font-medium">Column Statistics</h4>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                {columns.map(col => {
-                  const stats = getColumnStats(col);
-                  return (
-                    <div key={col} className="p-3 border rounded-lg">
-                      <div className="font-medium mb-2">{col}</div>
-                      <div className="space-y-1 text-sm">
-                        <div className="flex justify-between">
-                          <span>Total:</span>
-                          <span>{stats.total}</span>
-                        </div>
-                        <div className="flex justify-between">
-                          <span>Non-null:</span>
-                          <span>{stats.nonNull}</span>
-                        </div>
-                        <div className="flex justify-between">
-                          <span>Null:</span>
-                          <span className={stats.nullCount > 0 ? 'text-warning' : 'text-success'}>
-                            {stats.nullCount}
-                          </span>
-                        </div>
-                        <div className="flex justify-between">
-                          <span>Unique:</span>
-                          <span>{stats.uniqueValues}</span>
-                        </div>
-                        {stats.isNumeric && (
-                          <Badge variant="secondary" className="text-xs">Numeric</Badge>
-                        )}
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
-          </TabsContent>
-
-          <TabsContent value="filter" className="space-y-6">
-            <div className="space-y-4">
-              <h4 className="font-medium">Filter Data</h4>
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                <Select value={filterColumn} onValueChange={setFilterColumn}>
-                  <SelectTrigger>
-                    <SelectValue placeholder="Select column" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {columns.map(col => (
-                      <SelectItem key={col} value={col}>{col}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-                <Select value={filterOperator} onValueChange={setFilterOperator}>
-                  <SelectTrigger>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="equals">Equals</SelectItem>
-                    <SelectItem value="not_equals">Not equals</SelectItem>
-                    <SelectItem value="contains">Contains</SelectItem>
-                    <SelectItem value="greater_than">Greater than</SelectItem>
-                    <SelectItem value="less_than">Less than</SelectItem>
-                    <SelectItem value="is_empty">Is empty</SelectItem>
-                    <SelectItem value="is_not_empty">Is not empty</SelectItem>
-                  </SelectContent>
-                </Select>
-                <Input
-                  placeholder="Filter value"
-                  value={filterValue}
-                  onChange={(e) => setFilterValue(e.target.value)}
-                  disabled={filterOperator === 'is_empty' || filterOperator === 'is_not_empty'}
-                />
-              </div>
-              <Button onClick={applyFilter} disabled={!filterColumn || (!filterValue && filterOperator !== 'is_empty' && filterOperator !== 'is_not_empty')}>
-                <Filter className="h-4 w-4 mr-2" />
-                Apply Filter
-              </Button>
-            </div>
-          </TabsContent>
-
-          <TabsContent value="sort" className="space-y-6">
-            <div className="space-y-4">
-              <h4 className="font-medium">Sort Data</h4>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div>
-                  <label className="text-sm font-medium mb-2 block">Sort by columns (in order)</label>
-                  <div className="space-y-2">
-                    {sortColumns.map((col, index) => (
-                      <div key={index} className="flex items-center gap-2">
-                        <Badge variant="outline">{index + 1}</Badge>
-                        <span className="flex-1">{col}</span>
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          onClick={() => setSortColumns(prev => prev.filter((_, i) => i !== index))}
-                        >
-                          <Trash2 className="h-4 w-4" />
-                        </Button>
-                      </div>
-                    ))}
-                    <Select onValueChange={(value) => setSortColumns(prev => [...prev, value])}>
-                      <SelectTrigger>
-                        <SelectValue placeholder="Add column to sort" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {columns.filter(col => !sortColumns.includes(col)).map(col => (
-                          <SelectItem key={col} value={col}>{col}</SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
+                  <Button onClick={renameColumnOperation} className="sm:col-span-2 lg:col-span-1">
+                    <Edit className="h-4 w-4 mr-2" />
+                    Rename
+                  </Button>
                 </div>
-                <div>
-                  <label className="text-sm font-medium mb-2 block">Sort Direction</label>
+              </div>
+
+              <div>
+                <h4 className="font-medium mb-2">Delete Column</h4>
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-2">
+                  {columns.map(col => (
+                    <Button
+                      key={col}
+                      variant="destructive"
+                      size="sm"
+                      onClick={() => deleteColumn(col)}
+                      className="justify-start"
+                    >
+                      <Trash2 className="h-4 w-4 mr-2" />
+                      <span className="truncate">{col}</span>
+                    </Button>
+                  ))}
+                </div>
+              </div>
+            </div>
+          </TabsContent>
+
+          <TabsContent value="sort" className="space-y-4">
+            <div className="space-y-4">
+              <div>
+                <h4 className="font-medium mb-2">Sort Data</h4>
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 md:gap-4">
+                  <Select value={sortColumn} onValueChange={setSortColumn}>
+                    <SelectTrigger>
+                      <SelectValue placeholder="Select column" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {columns.map(col => (
+                        <SelectItem key={col} value={col}>{col}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
                   <Select value={sortDirection} onValueChange={(value: any) => setSortDirection(value)}>
                     <SelectTrigger>
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="asc">Ascending (A-Z)</SelectItem>
-                      <SelectItem value="desc">Descending (Z-A)</SelectItem>
+                      <SelectItem value="asc">Ascending</SelectItem>
+                      <SelectItem value="desc">Descending</SelectItem>
                     </SelectContent>
                   </Select>
+                  <Button onClick={addSortOperation} className="sm:col-span-2 lg:col-span-1">
+                    <SortAsc className="h-4 w-4 mr-2" />
+                    Add Sort
+                  </Button>
                 </div>
               </div>
-              <Button onClick={applySort} disabled={sortColumns.length === 0}>
-                <SortAsc className="h-4 w-4 mr-2" />
-                Apply Sort
-              </Button>
+
+              <div>
+                <h4 className="font-medium mb-2">Filter Data</h4>
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 md:gap-4">
+                  <Select value={filterColumn} onValueChange={setFilterColumn}>
+                    <SelectTrigger>
+                      <SelectValue placeholder="Select column" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {columns.map(col => (
+                        <SelectItem key={col} value={col}>{col}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <Select value={filterType} onValueChange={(value: any) => setFilterType(value)}>
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="contains">Contains</SelectItem>
+                      <SelectItem value="equals">Equals</SelectItem>
+                      <SelectItem value="greater">Greater than</SelectItem>
+                      <SelectItem value="less">Less than</SelectItem>
+                    </SelectContent>
+                  </Select>
+                  <Input
+                    placeholder="Filter value"
+                    value={filterValue}
+                    onChange={(e) => setFilterValue(e.target.value)}
+                  />
+                  <Button onClick={addFilterOperation}>
+                    <Filter className="h-4 w-4 mr-2" />
+                    Add Filter
+                  </Button>
+                </div>
+              </div>
+            </div>
+          </TabsContent>
+
+          <TabsContent value="calculate" className="space-y-4">
+            <div className="space-y-4">
+              <div>
+                <h4 className="font-medium mb-2">Calculate Column</h4>
+                <div className="space-y-4">
+                  <Input
+                    placeholder="Column name (e.g., total, average)"
+                    value={calculateColumnName}
+                    onChange={(e) => setCalculateColumnName(e.target.value)}
+                  />
+                  <Input
+                    placeholder="Formula (e.g., sales * 0.1, price + tax)"
+                    value={calculateFormula}
+                    onChange={(e) => setCalculateFormula(e.target.value)}
+                  />
+                  <div className="text-sm text-muted-foreground">
+                    <p>Available columns: {columns.join(', ')}</p>
+                    <p>Supported operations: +, -, *, /, (, )</p>
+                  </div>
+                  <Button onClick={addCalculateOperation} className="w-full sm:w-auto">
+                    <Calculator className="h-4 w-4 mr-2" />
+                    Add Calculation
+                  </Button>
+                </div>
+              </div>
             </div>
           </TabsContent>
         </Tabs>
 
-        {/* Operations History */}
+        {/* Operations List */}
         {operations.length > 0 && (
-          <div className="mt-6 pt-6 border-t">
-            <div className="flex items-center justify-between mb-4">
-              <h4 className="font-medium">Recent Operations</h4>
-              <Button variant="outline" size="sm" onClick={undoLastOperation}>
-                <RotateCcw className="h-4 w-4 mr-2" />
-                Undo Last
-              </Button>
-            </div>
-            <div className="space-y-2 max-h-32 overflow-y-auto">
-              {operations.slice(-5).reverse().map((op) => (
-                <div key={op.id} className="flex items-center gap-2 p-2 bg-muted/50 rounded text-sm">
-                  <Badge variant="outline" className="text-xs">
-                    {op.type.replace('_', ' ')}
-                  </Badge>
-                  <span className="text-muted-foreground">
-                    {new Date(op.timestamp).toLocaleTimeString()}
-                  </span>
-                </div>
-              ))}
+          <div className="mt-6">
+            <h4 className="font-medium mb-3">Pending Operations ({operations.filter(op => !op.applied).length})</h4>
+            <div className="space-y-2 max-h-64 overflow-y-auto">
+              {operations.map(renderOperation)}
             </div>
           </div>
         )}

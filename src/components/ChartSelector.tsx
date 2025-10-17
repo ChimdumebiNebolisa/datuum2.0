@@ -188,20 +188,20 @@ export function ChartSelector({
             Select the best visualization for your data
           </CardDescription>
         </CardHeader>
-        <CardContent>
+        <CardContent className="p-4 md:p-6">
           {recommendations.length > 0 && (
-            <div className="mb-6 p-4 bg-muted/50 rounded-lg">
+            <div className="mb-4 md:mb-6 p-3 md:p-4 bg-muted/50 rounded-lg">
               <div className="flex items-center gap-2 mb-2">
                 <TrendingUp className="h-4 w-4 text-primary" />
                 <span className="font-medium text-sm">AI Recommendations</span>
               </div>
-              <p className="text-sm text-muted-foreground">
+              <p className="text-xs md:text-sm text-muted-foreground">
                 Based on your data characteristics, here are the best chart types:
               </p>
             </div>
           )}
           
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 md:gap-4">
             {chartsWithRecommendations.map((chart) => (
               <Card 
                 key={chart.id}
@@ -212,16 +212,16 @@ export function ChartSelector({
                 }`}
                 onClick={() => handleChartSelect(chart)}
               >
-                <CardContent className="p-4">
-                  <div className="flex items-start justify-between mb-3">
-                    <div className="flex items-center gap-3">
-                      <div className="p-2 rounded-lg bg-primary/10">
+                <CardContent className="p-3 md:p-4">
+                  <div className="flex items-start justify-between mb-2 md:mb-3">
+                    <div className="flex items-center gap-2 md:gap-3">
+                      <div className="p-1.5 md:p-2 rounded-lg bg-primary/10">
                         {chart.icon}
                       </div>
-                      <div>
-                        <h3 className="font-medium text-sm">{chart.name}</h3>
+                      <div className="min-w-0 flex-1">
+                        <h3 className="font-medium text-xs md:text-sm truncate">{chart.name}</h3>
                         {chart.score && (
-                          <div className="flex items-center gap-2 mt-1">
+                          <div className="flex items-center gap-1 md:gap-2 mt-1">
                             <span className={`text-xs font-medium ${getScoreColor(chart.score)}`}>
                               {Math.round(chart.score * 100)}% match
                             </span>
@@ -236,11 +236,11 @@ export function ChartSelector({
                       </div>
                     </div>
                     {selectedChart === chart.id && (
-                      <CheckCircle className="h-5 w-5 text-primary" />
+                      <CheckCircle className="h-4 w-4 md:h-5 md:w-5 text-primary flex-shrink-0" />
                     )}
                   </div>
                   
-                  <p className="text-sm text-muted-foreground mb-3">
+                  <p className="text-xs md:text-sm text-muted-foreground mb-2 md:mb-3 line-clamp-2">
                     {chart.description}
                   </p>
                   
@@ -262,9 +262,9 @@ export function ChartSelector({
           </div>
           
           {dataColumns.length > 0 && (
-            <div className="mt-6 p-4 bg-muted/30 rounded-lg">
-              <h4 className="font-medium text-sm mb-2">Available Columns</h4>
-              <div className="flex flex-wrap gap-2">
+            <div className="mt-4 md:mt-6 p-3 md:p-4 bg-muted/30 rounded-lg">
+              <h4 className="font-medium text-xs md:text-sm mb-2">Available Columns</h4>
+              <div className="flex flex-wrap gap-1 md:gap-2">
                 {dataColumns.map((column) => (
                   <Badge key={column} variant="secondary" className="text-xs">
                     {column}
