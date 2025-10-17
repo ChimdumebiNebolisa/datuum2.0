@@ -306,7 +306,7 @@ result
     return (
       <div className="space-y-2">
         <div className="flex items-center justify-between mb-4">
-          <h4 className="font-medium">Detected Outliers ({outlierResults.summary.total_outliers})</h4>
+          <h4 className="font-medium">Detected Outliers ({outlierResults.summary?.total_outliers || 0})</h4>
           <div className="flex items-center gap-2">
             <Button
               variant="outline"
@@ -336,7 +336,7 @@ result
   };
 
   const renderSummaryStats = () => {
-    if (!outlierResults) return null;
+    if (!outlierResults || !outlierResults.summary) return null;
 
     const stats = outlierResults.summary;
     
@@ -347,7 +347,7 @@ result
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-sm font-medium text-muted-foreground">Total Outliers</p>
-                <p className="text-2xl font-bold">{stats.total_outliers}</p>
+                <p className="text-2xl font-bold">{stats.total_outliers || 0}</p>
               </div>
               <AlertTriangle className="h-8 w-8 text-destructive" />
             </div>
@@ -359,7 +359,7 @@ result
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-sm font-medium text-muted-foreground">Percentage</p>
-                <p className="text-2xl font-bold">{stats.percentage.toFixed(1)}%</p>
+                <p className="text-2xl font-bold">{(stats.percentage || 0).toFixed(1)}%</p>
               </div>
               <BarChart3 className="h-8 w-8 text-primary" />
             </div>
@@ -371,7 +371,7 @@ result
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-sm font-medium text-muted-foreground">Mean (With Outliers)</p>
-                <p className="text-2xl font-bold">{stats.mean_with_outliers.toFixed(2)}</p>
+                <p className="text-2xl font-bold">{(stats.mean_with_outliers || 0).toFixed(2)}</p>
               </div>
               <CheckCircle className="h-8 w-8 text-muted-foreground" />
             </div>
@@ -383,7 +383,7 @@ result
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-sm font-medium text-muted-foreground">Mean (Without Outliers)</p>
-                <p className="text-2xl font-bold">{stats.mean_without_outliers.toFixed(2)}</p>
+                <p className="text-2xl font-bold">{(stats.mean_without_outliers || 0).toFixed(2)}</p>
               </div>
               <CheckCircle className="h-8 w-8 text-green-600" />
             </div>
