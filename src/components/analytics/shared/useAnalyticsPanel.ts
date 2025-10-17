@@ -31,7 +31,7 @@ export function useAnalyticsPanel({
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   
-  const { executePython, isInitialized } = usePythonExecution();
+  const { executePython, isInitialized, initializationError } = usePythonExecution();
 
   // Get numeric columns for analysis
   const numericColumns = getNumericColumns(data, dataColumns);
@@ -100,7 +100,7 @@ export function useAnalyticsPanel({
   return {
     // State
     loading,
-    error,
+    error: error || initializationError,
     isInitialized,
     hasValidData,
     numericColumns,

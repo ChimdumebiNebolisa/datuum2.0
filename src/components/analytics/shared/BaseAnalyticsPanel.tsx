@@ -112,9 +112,27 @@ export function BaseAnalyticsPanel({
         {/* Error display */}
         {error && (
           <div className="mb-4 p-3 bg-destructive/10 border border-destructive/20 rounded-md">
-            <div className="flex items-center gap-2">
-              <AlertTriangle className="h-4 w-4 text-destructive" />
-              <span className="text-sm text-destructive">{error}</span>
+            <div className="flex items-start gap-2">
+              <AlertTriangle className="h-4 w-4 text-destructive mt-0.5 flex-shrink-0" />
+              <div className="flex-1">
+                <span className="text-sm text-destructive font-medium">{error}</span>
+                {error.includes('Python engine not available') && (
+                  <div className="mt-2 text-xs text-muted-foreground">
+                    <p>This usually happens when:</p>
+                    <ul className="list-disc list-inside mt-1 space-y-1">
+                      <li>The Python engine is still loading (try refreshing the page)</li>
+                      <li>Your browser doesn't support Web Workers</li>
+                      <li>There's a network connectivity issue</li>
+                    </ul>
+                    <button 
+                      onClick={() => window.location.reload()} 
+                      className="mt-2 text-xs text-primary hover:underline"
+                    >
+                      Refresh page to retry
+                    </button>
+                  </div>
+                )}
+              </div>
             </div>
           </div>
         )}

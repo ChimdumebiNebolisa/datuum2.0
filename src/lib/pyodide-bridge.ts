@@ -21,17 +21,25 @@ export function usePythonExecution() {
   const [worker, setWorker] = useState<PythonWorker | null>(null);
   const [isInitialized, setIsInitialized] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [initializationError, setInitializationError] = useState<string | null>(null);
   const pendingRequests = useRef(new Map<string, { resolve: Function; reject: Function }>());
 
   // Initialize worker
   useEffect(() => {
     const initializeWorker = async () => {
       try {
-        // Create Web Worker
-        const workerInstance = new Worker(
-          new URL('./pyodide-worker.ts', import.meta.url),
-          { type: 'module' }
-        );
+        // Create Web Worker with proper path handling for static export
+        let workerUrl: string;
+        
+        if (typeof window !== 'undefined') {
+          // In browser environment, use the public path
+          workerUrl = '/pyodide-worker.js';
+        } else {
+          // Fallback for development
+          workerUrl = new URL('./pyodide-worker.ts', import.meta.url).toString();
+        }
+        
+        const workerInstance = new Worker(workerUrl, { type: 'module' });
 
         // Handle worker messages
         workerInstance.addEventListener('message', (event) => {
@@ -49,6 +57,12 @@ export function usePythonExecution() {
           }
         });
 
+        // Handle worker errors
+        workerInstance.addEventListener('error', (error) => {
+          logger.error('Worker error:', error);
+          throw new Error('Worker failed to start');
+        });
+
         // Initialize Pyodide with timeout
         const initPromise = sendMessage(workerInstance, 'INITIALIZE', {});
         const timeoutPromise = new Promise((_, reject) => 
@@ -58,8 +72,10 @@ export function usePythonExecution() {
         await Promise.race([initPromise, timeoutPromise]);
         setWorker(workerInstance);
         setIsInitialized(true);
+        logger.info('Python worker initialized successfully');
       } catch (error) {
         logger.error('Python worker initialization error:', error as Error, 'Python worker initialization');
+        setInitializationError(error instanceof Error ? error.message : 'Failed to initialize Python worker');
         // Set as initialized anyway to allow fallback
         setIsInitialized(true);
       }
@@ -107,8 +123,35 @@ export function usePythonExecution() {
   ): Promise<T> => {
     if (!worker || !isInitialized) {
       // Fallback for when Python is not available
-      logger.warn('Python worker not available, using fallback');
-      return { success: false, error: 'Python engine not available' } as T;
+      logger.warn('Python worker not available, attempting direct Pyodide initialization');
+      
+      // Try to initialize Pyodide directly as a fallback
+      try {
+        if (typeof window !== 'undefined' && (window as any).loadPyodide) {
+          const pyodide = await (window as any).loadPyodide({
+            indexURL: 'https://cdn.jsdelivr.net/pyodide/v0.26.0/full/'
+          });
+          
+          // Set context variables
+          for (const [key, value] of Object.entries(context)) {
+            pyodide.globals.set(key, value);
+          }
+          
+          // Execute Python code
+          const result = pyodide.runPython(code);
+          
+          // Convert result to JavaScript
+          if (result && typeof result.toJs === 'function') {
+            return result.toJs({ dict_converter: Object.fromEntries });
+          }
+          
+          return result;
+        }
+      } catch (directError) {
+        logger.error('Direct Pyodide initialization failed:', directError as Error);
+      }
+      
+      return { success: false, error: 'Python engine not available. Please refresh the page to retry initialization.' } as T;
     }
 
     setLoading(true);
@@ -142,7 +185,8 @@ export function usePythonExecution() {
     executePython,
     loadModule,
     isInitialized,
-    loading
+    loading,
+    initializationError
   };
 }
 

@@ -1,166 +1,142 @@
-/**
- * Pyodide Web Worker for Python Execution
- * 
- * This worker handles Python code execution in the browser using Pyodide.
- * It loads Python packages like pandas, numpy, scipy, and matplotlib.
- */
+// Simple Python execution worker (Pyodide will be loaded dynamically)
+// This is a standalone version for static export deployment
+
+// Configuration
+const PYODIDE_VERSION = '0.26.0';
+const PYODIDE_CDN_URL = 'https://cdn.jsdelivr.net/pyodide';
+const PYODIDE_PACKAGES = ['numpy', 'pandas', 'scipy', 'matplotlib', 'scikit-learn', 'seaborn'];
 
 let pyodide = null;
-let isLoaded = false;
+let isInitialized = false;
 
-// Load Pyodide and required packages
-async function loadPyodide() {
-  if (isLoaded) return pyodide;
+// Simple logger for worker environment
+const logger = {
+  warn: (message, ...args) => console.warn(`[Pyodide Worker] ${message}`, ...args),
+  error: (message, ...args) => console.error(`[Pyodide Worker] ${message}`, ...args),
+  info: (message, ...args) => console.info(`[Pyodide Worker] ${message}`, ...args)
+};
+
+// Initialize Pyodide and load required packages
+async function initializePyodide() {
+  if (isInitialized) return pyodide;
   
   try {
-    // Import Pyodide
-    self.importScripts('https://cdn.jsdelivr.net/pyodide/v0.26.0/full/pyodide.js');
+    logger.info('Initializing Pyodide...');
     
-    // Initialize Pyodide
-    pyodide = await self.loadPyodide({
-      indexURL: 'https://cdn.jsdelivr.net/pyodide/v0.26.0/full/'
+    // Get configuration
+    const scriptUrl = `${PYODIDE_CDN_URL}/v${PYODIDE_VERSION}/full/pyodide.js`;
+    const indexUrl = `${PYODIDE_CDN_URL}/v${PYODIDE_VERSION}/full`;
+    
+    // Worker environment - use importScripts
+    importScripts(scriptUrl);
+    const { loadPyodide } = self.pyodide;
+    
+    pyodide = await loadPyodide({
+      indexURL: indexUrl
     });
-    
-    // Install required packages
-    await pyodide.loadPackage(['pandas', 'numpy', 'scipy', 'matplotlib', 'scikit-learn', 'seaborn']);
-    
-    // Load our custom Python modules
-    await loadPythonModules();
-    
-    isLoaded = true;
-    console.log('Pyodide loaded successfully with packages:', pyodide.loadedPackages);
-    
+
+    // Load essential packages one by one with progress tracking
+    for (const pkg of PYODIDE_PACKAGES) {
+      try {
+        logger.info(`Loading package: ${pkg}`);
+        await pyodide.loadPackage(pkg);
+      } catch (error) {
+        logger.warn(`Failed to load package ${pkg}:`, error);
+        // Continue with other packages
+      }
+    }
+
+    isInitialized = true;
+    logger.info('Pyodide initialization completed');
     return pyodide;
   } catch (error) {
-    console.error('Failed to load Pyodide:', error);
+    logger.error('Failed to initialize Pyodide:', error);
     throw error;
   }
 }
 
-// Load custom Python modules
-async function loadPythonModules() {
-  const modules = [
-    'data_processor.py',
-    'statistics.py', 
-    'ml_insights.py',
-    'chart_recommender.py',
-    'time_series.py'
-  ];
+// Execute Python code and return results
+async function executePython(code, context = {}) {
+  const py = await initializePyodide();
   
-  for (const module of modules) {
-    try {
-      // Load Python module from public/python/ directory
-      const response = await fetch(`/python/${module}`);
-      if (response.ok) {
-        const code = await response.text();
-        pyodide.runPython(code);
-        console.log(`Loaded Python module: ${module}`);
-      } else {
-        console.warn(`Could not load Python module: ${module}`);
-      }
-    } catch (error) {
-      console.warn(`Error loading Python module ${module}:`, error);
+  try {
+    // Set context variables
+    for (const [key, value] of Object.entries(context)) {
+      py.globals.set(key, value);
     }
+
+    // Execute Python code
+    const result = py.runPython(code);
+    
+    // Convert result to JavaScript
+    if (result && typeof result.toJs === 'function') {
+      return result.toJs({ dict_converter: Object.fromEntries });
+    }
+    
+    return result;
+  } catch (error) {
+    logger.error('Python execution error:', error);
+    throw error;
   }
 }
 
-// Message handler for worker communication
-self.onmessage = async function(e) {
-  const { id, type, payload } = e.data;
+// Load Python modules from public directory
+async function loadPythonModule(moduleName) {
+  const py = await initializePyodide();
+  
+  try {
+    const response = await fetch(`/python/${moduleName}.py`);
+    const code = await response.text();
+    
+    py.runPython(code);
+    return py.globals.get(moduleName.replace('.py', ''));
+  } catch (error) {
+    logger.error(`Failed to load module ${moduleName}:`, error);
+    throw error;
+  }
+}
+
+// Message handler for Web Worker
+self.addEventListener('message', async (event) => {
+  const { type, payload, id } = event.data;
   
   try {
     let result;
     
     switch (type) {
-      case 'INIT':
-        result = await loadPyodide();
-        self.postMessage({ id, type: 'INIT_SUCCESS', payload: { loaded: true } });
+      case 'INITIALIZE':
+        await initializePyodide();
+        result = { success: true };
         break;
         
-      case 'EXECUTE_PYTHON':
-        if (!pyodide) {
-          throw new Error('Pyodide not initialized');
-        }
-        
-        const { code, context = {} } = payload;
-        
-        // Set context variables
-        for (const [key, value] of Object.entries(context)) {
-          pyodide.globals.set(key, value);
-        }
-        
-        // Execute Python code
-        result = pyodide.runPython(code);
-        
-        // Get result (handle different return types)
-        let resultData;
-        if (result && typeof result === 'object' && result.toJs) {
-          // Convert Pyodide objects to JavaScript
-          resultData = result.toJs({ dict_converter: Object.fromEntries });
-        } else {
-          resultData = result;
-        }
-        
-        self.postMessage({ 
-          id, 
-          type: 'EXECUTE_SUCCESS', 
-          payload: { result: resultData } 
-        });
+      case 'EXECUTE':
+        result = await executePython(payload.code, payload.context);
         break;
         
-      case 'GET_PYTHON_VARIABLE':
-        if (!pyodide) {
-          throw new Error('Pyodide not initialized');
-        }
-        
-        const { variableName } = payload;
-        const variable = pyodide.globals.get(variableName);
-        
-        let variableData;
-        if (variable && typeof variable === 'object' && variable.toJs) {
-          variableData = variable.toJs({ dict_converter: Object.fromEntries });
-        } else {
-          variableData = variable;
-        }
-        
-        self.postMessage({ 
-          id, 
-          type: 'GET_VARIABLE_SUCCESS', 
-          payload: { variable: variableData } 
-        });
-        break;
-        
-      case 'SET_PYTHON_VARIABLE':
-        if (!pyodide) {
-          throw new Error('Pyodide not initialized');
-        }
-        
-        const { name, value } = payload;
-        pyodide.globals.set(name, value);
-        
-        self.postMessage({ 
-          id, 
-          type: 'SET_VARIABLE_SUCCESS', 
-          payload: { success: true } 
-        });
+      case 'LOAD_MODULE':
+        result = await loadPythonModule(payload.moduleName);
         break;
         
       default:
         throw new Error(`Unknown message type: ${type}`);
     }
     
+    self.postMessage({
+      type: 'SUCCESS',
+      payload: result,
+      id
+    });
   } catch (error) {
-    console.error('Worker error:', error);
-    self.postMessage({ 
-      id, 
-      type: 'ERROR', 
-      payload: { 
-        error: error.message,
-        stack: error.stack 
-      } 
+    self.postMessage({
+      type: 'ERROR',
+      payload: {
+        message: error instanceof Error ? error.message : 'Unknown error',
+        stack: error instanceof Error ? error.stack : undefined
+      },
+      id
     });
   }
-};
+});
 
-// Signal that worker is ready
-self.postMessage({ type: 'WORKER_READY' });
+// Export for compatibility
+export { initializePyodide, executePython, loadPythonModule };
