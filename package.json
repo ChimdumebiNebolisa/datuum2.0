@@ -1,0 +1,44 @@
+{
+  "name": "datuum-2.0",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "next lint",
+    "build:java": "cd java-modules && mvn clean compile teavm:compile",
+    "build:all": "npm run build:java && npm run build",
+    "export": "next build && next export"
+  },
+  "dependencies": {
+    "@types/d3-sankey": "^0.12.4",
+    "chart.js": "^4.4.0",
+    "clsx": "^2.0.0",
+    "d3": "^7.8.5",
+    "d3-sankey": "^0.12.3",
+    "html2canvas": "^1.4.1",
+    "jspdf": "^2.5.1",
+    "lucide-react": "^0.294.0",
+    "next": "15.0.0",
+    "papaparse": "^5.4.1",
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0",
+    "tailwind-merge": "^2.0.0",
+    "xlsx": "^0.18.5",
+    "zustand": "^4.4.7"
+  },
+  "devDependencies": {
+    "@types/d3": "^7.4.0",
+    "@types/node": "^20.8.0",
+    "@types/papaparse": "^5.3.8",
+    "@types/react": "^18.2.0",
+    "@types/react-dom": "^18.2.0",
+    "autoprefixer": "^10.4.16",
+    "eslint": "^8.52.0",
+    "eslint-config-next": "15.0.0",
+    "postcss": "^8.4.31",
+    "tailwindcss": "^3.3.5",
+    "typescript": "^5.2.2"
+  }
+}
